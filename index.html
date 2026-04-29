@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>三角関数ジェネレーター</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <h1 class="title">🌸 三角関数ジェネレーター</h1>
+      <input type="text" id="search" placeholder="関数を検索..." />
+    </div>
+    <div class="topbar-right">
+      <button id="btn-add-node" class="btn btn-pink">＋ 関数ノード</button>
+      <button id="btn-screenshot" class="btn btn-mint">📸 スクショ</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="canvas-wrap">
+      <svg id="edges" class="edges"></svg>
+      <div id="canvas" class="canvas"></div>
+    </section>
+
+    <aside class="sidebar">
+      <details open>
+        <summary>🌷 はじめかた</summary>
+        <ol class="hint">
+          <li>右上の「＋関数ノード」から関数を追加</li>
+          <li>ノードの「＋」をドラッグで別ノードへ接続</li>
+          <li>📈 出力ノードに繋ぐとグラフがプレビュー</li>
+        </ol>
+      </details>
+
+      <details open>
+        <summary>🍡 ノードを追加</summary>
+        <div class="palette">
+          <button class="chip" data-kind="sin">🌸 sin</button>
+          <button class="chip" data-kind="cos">🍀 cos</button>
+          <button class="chip" data-kind="tan">🔥 tan</button>
+          <button class="chip" data-kind="const">🍡 定数</button>
+          <button class="chip" data-kind="add">➕ 合成(+)</button>
+          <button class="chip" data-kind="mul">✖️ 合成(×)</button>
+          <button class="chip" data-kind="output">📈 出力</button>
+        </div>
+      </details>
+
+      <details open>
+        <summary>🎀 サンプル</summary>
+        <div class="palette">
+          <button class="chip" id="sample-basic">🌸 sin(x)</button>
+          <button class="chip" id="sample-sum">sin+cos</button>
+          <button class="chip" id="sample-beat">うなり</button>
+        </div>
+      </details>
+
+      <details open>
+        <summary>🪄 操作</summary>
+        <div class="palette">
+          <button class="chip" id="btn-clear">🧹 すべてクリア</button>
+          <button class="chip" id="btn-export">💾 書き出し</button>
+          <label class="chip" for="file-import">📂 読み込み
+            <input type="file" id="file-import" accept=".json,.sankakukansu.json" hidden />
+          </label>
+        </div>
+      </details>
+
+      <details open id="inspector-wrap">
+        <summary>🔍 選択中のノード</summary>
+        <div id="inspector" class="inspector">
+          <p class="muted">ノードをクリックすると編集できます</p>
+        </div>
+      </details>
+    </aside>
+  </main>
+
+  <footer class="footer">
+    <small>三角関数ジェネレーター（最小版） · ローカル保存 · ブラウザ内で完結</small>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,1 +1,1 @@
-# trigonometric-functions-generator
+# 三角関数ジェネレーター
