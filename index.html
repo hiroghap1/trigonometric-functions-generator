@@ -3,83 +3,180 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>三角関数ジェネレーター</title>
+<title>🌸 三角関数ジェネレーター</title>
 <link rel="stylesheet" href="style.css" />
 </head>
-<body>
+<body data-theme="pastel">
   <header class="topbar">
     <div class="topbar-left">
       <h1 class="title">🌸 三角関数ジェネレーター</h1>
       <input type="text" id="search" placeholder="関数を検索..." />
     </div>
     <div class="topbar-right">
-      <button id="btn-add-node" class="btn btn-pink">＋ 関数ノード</button>
+      <button id="btn-undo"   class="btn btn-ghost" title="元に戻す (Ctrl+Z)">↶</button>
+      <button id="btn-redo"   class="btn btn-ghost" title="やり直し (Ctrl+Y)">↷</button>
+      <select id="theme-select" class="btn btn-ghost" title="テーマ">
+        <option value="pastel">🌸 ぱすてる</option>
+        <option value="wa">🎏 和風</option>
+        <option value="dark">🌙 ダーク</option>
+        <option value="neko">🐱 ねこ</option>
+      </select>
+      <button id="btn-learn"  class="btn btn-ghost" title="学習モード">📘 学習</button>
+      <button id="btn-quiz"   class="btn btn-ghost" title="クイズモード">🎲 クイズ</button>
+      <button id="btn-add-node" class="btn btn-pink">＋ ノード</button>
       <button id="btn-screenshot" class="btn btn-mint">📸 スクショ</button>
     </div>
   </header>
 
   <main class="layout">
-    <section class="canvas-wrap">
-      <svg id="edges" class="edges"></svg>
-      <div id="canvas" class="canvas"></div>
+    <section class="canvas-wrap" id="canvas-wrap">
+      <div class="canvas-stage" id="canvas-stage">
+        <svg id="overlay" class="overlay"></svg>
+        <svg id="edges" class="edges"></svg>
+        <div id="canvas" class="canvas"></div>
+      </div>
+      <div id="hint-tip" class="hint-tip" hidden></div>
+      <div class="zoom-controls">
+        <button id="btn-zoom-in"    title="拡大 (Ctrl+ホイール)">＋</button>
+        <button id="btn-zoom-out"   title="縮小 (Ctrl+ホイール)">−</button>
+        <button id="btn-zoom-reset" title="リセット">⌂</button>
+        <span id="zoom-indicator" class="zoom-indicator">100%</span>
+      </div>
     </section>
 
     <aside class="sidebar">
       <details open>
         <summary>🌷 はじめかた</summary>
         <ol class="hint">
-          <li>右上の「＋関数ノード」から関数を追加</li>
-          <li>ノードの「＋」をドラッグで別ノードへ接続</li>
-          <li>📈 出力ノードに繋ぐとグラフがプレビュー</li>
+          <li>「＋ノード」から関数や演算を追加</li>
+          <li>ノードの「＋」をドラッグして接続</li>
+          <li>📈 出力に繋ぐとグラフがプレビュー</li>
+          <li>線をクリックすると関係ラベル・矢印を変更</li>
         </ol>
       </details>
 
       <details open>
-        <summary>🍡 ノードを追加</summary>
+        <summary>🍡 関数ノード</summary>
         <div class="palette">
           <button class="chip" data-kind="sin">🌸 sin</button>
           <button class="chip" data-kind="cos">🍀 cos</button>
           <button class="chip" data-kind="tan">🔥 tan</button>
+          <button class="chip" data-kind="cot">❄️ cot</button>
+          <button class="chip" data-kind="sec">☀️ sec</button>
+          <button class="chip" data-kind="csc">🌙 csc</button>
           <button class="chip" data-kind="const">🍡 定数</button>
-          <button class="chip" data-kind="add">➕ 合成(+)</button>
-          <button class="chip" data-kind="mul">✖️ 合成(×)</button>
+          <button class="chip" data-kind="unitcircle">⭕ 単位円</button>
+        </div>
+      </details>
+
+      <details open>
+        <summary>🎀 演算・変換</summary>
+        <div class="palette">
+          <button class="chip" data-kind="add">➕ 合計</button>
+          <button class="chip" data-kind="sub">➖ 差</button>
+          <button class="chip" data-kind="mul">✖️ 積</button>
+          <button class="chip" data-kind="div">➗ 商</button>
+          <button class="chip" data-kind="shift">🎀 平行移動</button>
+          <button class="chip" data-kind="scale">🎁 拡大縮小</button>
+          <button class="chip" data-kind="flip">🪞 反転</button>
+          <button class="chip" data-kind="diff">⚡ 微分</button>
+          <button class="chip" data-kind="integ">★ 積分</button>
           <button class="chip" data-kind="output">📈 出力</button>
         </div>
       </details>
 
       <details open>
-        <summary>🎀 サンプル</summary>
+        <summary>✨ レイアウト（PC）</summary>
         <div class="palette">
-          <button class="chip" id="sample-basic">🌸 sin(x)</button>
-          <button class="chip" id="sample-sum">sin+cos</button>
-          <button class="chip" id="sample-beat">うなり</button>
+          <button class="chip" id="btn-add-group">🌈 グループ</button>
+          <button class="chip" id="btn-add-note">📝 メモ</button>
         </div>
       </details>
 
       <details open>
-        <summary>🪄 操作</summary>
+        <summary>🎼 サンプル</summary>
         <div class="palette">
-          <button class="chip" id="btn-clear">🧹 すべてクリア</button>
+          <button class="chip" data-sample="basic">🌸 sin(x)</button>
+          <button class="chip" data-sample="sum">sin+cos</button>
+          <button class="chip" data-sample="beat">うなり</button>
+          <button class="chip" data-sample="fourier">フーリエ</button>
+          <button class="chip" data-sample="lissajous">リサジュー</button>
+          <button class="chip" data-sample="pendulum">振り子</button>
+        </div>
+      </details>
+
+      <details open>
+        <summary>🔊 出力 / 再生</summary>
+        <div class="palette">
+          <button class="chip" id="btn-play"  >▶ 再生</button>
+          <button class="chip" id="btn-stop"  >■ 停止</button>
+          <button class="chip" id="btn-sound" >🔊 音で聴く</button>
+          <button class="chip" id="btn-latex" >🧮 LaTeX</button>
+        </div>
+      </details>
+
+      <details open>
+        <summary>💾 ファイル</summary>
+        <div class="palette">
           <button class="chip" id="btn-export">💾 書き出し</button>
-          <label class="chip" for="file-import">📂 読み込み
+          <label  class="chip" for="file-import">📂 読み込み
             <input type="file" id="file-import" accept=".json,.sankakukansu.json" hidden />
           </label>
+          <button class="chip" id="btn-clear">🧹 すべてクリア</button>
         </div>
       </details>
 
       <details open id="inspector-wrap">
-        <summary>🔍 選択中のノード</summary>
+        <summary>🔍 インスペクタ</summary>
         <div id="inspector" class="inspector">
-          <p class="muted">ノードをクリックすると編集できます</p>
+          <p class="muted">ノードや線をクリックすると編集できます</p>
         </div>
       </details>
     </aside>
   </main>
 
   <footer class="footer">
-    <small>三角関数ジェネレーター（最小版） · ローカル保存 · ブラウザ内で完結</small>
+    <small>三角関数ジェネレーター · ローカル保存 · ブラウザ内で完結 · Ctrl+Z/Y で Undo/Redo</small>
   </footer>
 
+  <!-- 関係ラベル選択ポップアップ -->
+  <div id="edge-popup" class="edge-popup" hidden>
+    <div class="popup-row">
+      <button data-label="♡好き">♡好き</button>
+      <button data-label="✕嫌い">✕嫌い</button>
+      <button data-label="⚡微分">⚡微分</button>
+      <button data-label="★積分">★積分</button>
+      <button data-label="？気になる">？気になる</button>
+      <button data-label="">＋自由</button>
+    </div>
+    <div class="popup-row">
+      <button data-style="single">→ 片方向</button>
+      <button data-style="double">↔ 両方向</button>
+      <button data-style="dotted">⋯ 点線</button>
+      <button data-style="wavy">∿ 波線</button>
+    </div>
+    <div class="popup-row">
+      <button id="edge-delete">🗑 削除</button>
+    </div>
+  </div>
+
+  <!-- クイズモーダル -->
+  <div id="quiz-modal" class="modal" hidden>
+    <div class="modal-card">
+      <h2>🎲 クイズモード</h2>
+      <p>このグラフを表す関数はどれ？</p>
+      <canvas id="quiz-graph" width="320" height="120"></canvas>
+      <div id="quiz-choices" class="quiz-choices"></div>
+      <p id="quiz-result" class="muted"></p>
+      <div class="modal-actions">
+        <button id="quiz-next" class="chip">次の問題</button>
+        <button id="quiz-close" class="chip">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"
+          onerror="window.__html2canvas_failed=true"></script>
   <script src="app.js"></script>
 </body>
 </html>
