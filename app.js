@@ -91,6 +91,26 @@ const TIPS = [
 ];
 let tipIndex = 0;
 
+// -------- 練習モード問題セット --------
+const PRACTICE_PROBLEMS = [
+  { formula: "sin(x)",                fn: (x) => Math.sin(x),                                hint: "🌸 sin ノードをそのまま 📈 出力に繋ぐだけ" },
+  { formula: "cos(x)",                fn: (x) => Math.cos(x),                                hint: "🍀 cos ノードを 📈 出力に繋ぐ" },
+  { formula: "2 · sin(x)",            fn: (x) => 2 * Math.sin(x),                            hint: "sin の振幅 a を 2 にする" },
+  { formula: "sin(2x)",               fn: (x) => Math.sin(2 * x),                            hint: "sin の周期 b を 2 にする（波が細かくなる）" },
+  { formula: "sin(x) + 1",            fn: (x) => Math.sin(x) + 1,                            hint: "sin の上下 d を 1 にする（波が上に持ち上がる）" },
+  { formula: "-sin(x)",               fn: (x) => -Math.sin(x),                               hint: "🪞 反転ノード or sin の振幅 a を -1 に" },
+  { formula: "sin(x) + cos(x)",       fn: (x) => Math.sin(x) + Math.cos(x),                  hint: "sin と cos を ➕合計 ノードで繋ぐ" },
+  { formula: "sin(x) - cos(x)",       fn: (x) => Math.sin(x) - Math.cos(x),                  hint: "➖差 ノード（最初が引かれる側）" },
+  { formula: "sin(x) · cos(x)",       fn: (x) => Math.sin(x) * Math.cos(x),                  hint: "✖️積。実は sin(2x)/2 と等しい！" },
+  { formula: "cos(x − π/2)",          fn: (x) => Math.cos(x - Math.PI / 2),                  hint: "cos の位相 c を −π/2 ≈ −1.57 に。すると sin と同じ波になる" },
+  { formula: "sin²(x) + cos²(x) = 1", fn: (x) => Math.sin(x) ** 2 + Math.cos(x) ** 2,        hint: "ピタゴラスの恒等式。sin*sin と cos*cos を ➕合計" },
+  { formula: "0.5·sin(x) + 0.5·sin(3x)", fn: (x) => 0.5*Math.sin(x) + 0.5*Math.sin(3 * x),   hint: "矩形波の最初の2項。フーリエ級数の入口🎵" },
+  { formula: "sin(x + π/4)",          fn: (x) => Math.sin(x + Math.PI / 4),                  hint: "位相 c を π/4 ≈ 0.785 にずらす" },
+  { formula: "2·cos(2x) + 1",         fn: (x) => 2 * Math.cos(2 * x) + 1,                    hint: "a=2, b=2, d=1。3つのパラメータをまとめて変える" },
+  { formula: "sin(x) / 2",            fn: (x) => Math.sin(x) / 2,                            hint: "a を 0.5 にする（小さな波）" },
+];
+let practiceState = null;
+
 // =========================================================================
 // 初期化
 // =========================================================================
@@ -123,6 +143,11 @@ function bindUi() {
   document.getElementById("btn-screenshot").addEventListener("click", screenshot);
   document.getElementById("btn-learn").addEventListener("click", toggleLearnMode);
   document.getElementById("btn-quiz").addEventListener("click", openQuiz);
+  document.getElementById("btn-practice").addEventListener("click", openPractice);
+  document.getElementById("practice-close").addEventListener("click", closePractice);
+  document.getElementById("practice-check").addEventListener("click", checkPractice);
+  document.getElementById("practice-hint-btn").addEventListener("click", showPracticeHint);
+  document.getElementById("practice-skip").addEventListener("click", nextPractice);
   const themeSel = document.getElementById("theme-select");
   themeSel.value = state.theme || "pastel";
   themeSel.addEventListener("change", (e) => { applyTheme(e.target.value); save(); });
@@ -2292,4 +2317,136 @@ function showNextTip() {
   if (!el) return;
   el.textContent = TIPS[tipIndex % TIPS.length];
   tipIndex++;
+}
+
+// =========================================================================
+// 練習モード
+// =========================================================================
+function openPractice() {
+  practiceState = { index: 0, hintShown: false, problem: null };
+  document.getElementById("practice-panel").hidden = false;
+  loadPracticeProblem();
+}
+function closePractice() {
+  document.getElementById("practice-panel").hidden = true;
+  practiceState = null;
+}
+function loadPracticeProblem() {
+  if (!practiceState) return;
+  const p = PRACTICE_PROBLEMS[practiceState.index % PRACTICE_PROBLEMS.length];
+  practiceState.problem = p;
+  practiceState.hintShown = false;
+  document.getElementById("practice-counter").textContent = `問題 ${(practiceState.index % PRACTICE_PROBLEMS.length) + 1}/${PRACTICE_PROBLEMS.length}`;
+  drawPracticeTarget(p);
+  const hint = document.getElementById("practice-hint");
+  hint.hidden = true; hint.textContent = "";
+  const result = document.getElementById("practice-result");
+  result.textContent = ""; result.className = "muted";
+}
+function drawPracticeTarget(problem) {
+  const cv = document.getElementById("practice-target");
+  if (!cv) return;
+  const ctx = cv.getContext("2d");
+  const w = cv.width, h = cv.height;
+  ctx.clearRect(0, 0, w, h);
+  const styles = getComputedStyle(document.body);
+  const lineCol = styles.getPropertyValue("--line").trim() || "#f1c8d8";
+  const edgeCol = styles.getPropertyValue("--edge").trim() || "#ff8fb5";
+  drawAxes(ctx, w, h, lineCol);
+  ctx.beginPath();
+  ctx.strokeStyle = edgeCol; ctx.lineWidth = 2;
+  const xMin = -2 * Math.PI, xMax = 2 * Math.PI;
+  const yScale = 18;
+  let started = false, lastY = null;
+  for (let px = 0; px <= w; px++) {
+    const x = xMin + (px / w) * (xMax - xMin);
+    let y = problem.fn(x);
+    if (!isFinite(y)) { started = false; continue; }
+    y = Math.max(-h, Math.min(h, y));
+    const py = h / 2 - y * yScale;
+    if (!started || (lastY !== null && Math.abs(py - lastY) > h * 0.7)) {
+      ctx.moveTo(px, py); started = true;
+    } else ctx.lineTo(px, py);
+    lastY = py;
+  }
+  ctx.stroke();
+}
+function checkPractice() {
+  if (!practiceState || !practiceState.problem) return;
+  const result = document.getElementById("practice-result");
+  const out = state.nodes.find((n) => n.kind === "output");
+  if (!out) {
+    result.textContent = "📈 出力ノードを置いて、関数を繋いでね";
+    result.className = "muted practice-result-wrong";
+    return;
+  }
+  const N = 80;
+  const xMin = -2 * Math.PI, xMax = 2 * Math.PI;
+  let sumSq = 0, valid = 0;
+  for (let i = 0; i <= N; i++) {
+    const x = xMin + (i / N) * (xMax - xMin);
+    const yT = practiceState.problem.fn(x);
+    const yU = evaluate(out.id, x, 0);
+    if (!isFinite(yT) || !isFinite(yU) || Math.abs(yU) > 1e3) continue;
+    sumSq += (yU - yT) ** 2;
+    valid++;
+  }
+  if (valid < N * 0.4) {
+    result.textContent = "🌀 値が安定してないみたい… 接続を見直してね";
+    result.className = "muted practice-result-wrong";
+    return;
+  }
+  const rmse = Math.sqrt(sumSq / valid);
+  if (rmse < 0.15) {
+    result.innerHTML = `🎉 <span class="practice-result-correct">正解！</span> (誤差 ${rmse.toFixed(3)})`;
+    celebrate();
+    setTimeout(() => {
+      if (practiceState) { practiceState.index++; loadPracticeProblem(); }
+    }, 1800);
+  } else if (rmse < 0.5) {
+    result.innerHTML = `<span class="practice-result-wrong">惜しい！</span> もう少しで正解 (誤差 ${rmse.toFixed(2)})`;
+    result.className = "muted";
+  } else {
+    result.innerHTML = `<span class="practice-result-wrong">違うかな…</span> グラフをよく見てみて (誤差 ${rmse.toFixed(2)})`;
+    result.className = "muted";
+  }
+}
+function showPracticeHint() {
+  if (!practiceState || !practiceState.problem) return;
+  const hint = document.getElementById("practice-hint");
+  hint.hidden = false;
+  hint.textContent = "💡 答え: y = " + practiceState.problem.formula + " — " + practiceState.problem.hint;
+  practiceState.hintShown = true;
+}
+function nextPractice() {
+  if (!practiceState) return;
+  practiceState.index++;
+  loadPracticeProblem();
+}
+function celebrate() {
+  const wrap = document.getElementById("canvas-wrap");
+  const r = wrap.getBoundingClientRect();
+  const emojis = ["🎉", "🌸", "✨", "🌟", "💖", "🎊", "🌈", "🍀", "🌷"];
+  // バナー
+  const banner = document.createElement("div");
+  banner.className = "celebrate-banner";
+  banner.textContent = "🌸 正解！";
+  wrap.appendChild(banner);
+  setTimeout(() => banner.remove(), 1500);
+  // 紙吹雪
+  for (let i = 0; i < 22; i++) {
+    const el = document.createElement("div");
+    el.className = "confetti";
+    el.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+    const x = r.width / 2 + (Math.random() - 0.5) * 220;
+    const y = r.height / 2;
+    const dx = (Math.random() - 0.5) * 460;
+    const dy = (Math.random() - 0.2) * 360 + 220;
+    el.style.left = x + "px";
+    el.style.top = y + "px";
+    el.style.setProperty("--dx", dx + "px");
+    el.style.setProperty("--dy", dy + "px");
+    wrap.appendChild(el);
+    setTimeout(() => el.remove(), 1700);
+  }
 }

@@ -23,6 +23,7 @@
       </select>
       <button id="btn-learn"  class="btn btn-ghost" title="学習モード">📘 学習</button>
       <button id="btn-quiz"   class="btn btn-ghost" title="クイズモード">🎲 クイズ</button>
+      <button id="btn-practice" class="btn btn-ghost" title="練習モード">🎯 練習</button>
       <button id="btn-add-node" class="btn btn-pink">＋ ノード</button>
       <button id="btn-screenshot" class="btn btn-mint">📸 スクショ</button>
     </div>
@@ -37,6 +38,22 @@
       </div>
       <div id="hint-tip" class="hint-tip" hidden></div>
       <div id="select-rect" class="select-rect" hidden></div>
+
+      <div id="practice-panel" class="practice-panel" hidden>
+        <div class="practice-header">
+          <span><span id="practice-counter">問題 1</span> 🎯 練習モード</span>
+          <button id="practice-close" title="閉じる">×</button>
+        </div>
+        <p class="muted" style="margin:0">このグラフを作ってみよう！</p>
+        <canvas id="practice-target" width="240" height="90"></canvas>
+        <div class="palette">
+          <button class="chip" id="practice-check">✅ チェック</button>
+          <button class="chip" id="practice-hint-btn">💡 ヒント</button>
+          <button class="chip" id="practice-skip">⏭ 次の問題</button>
+        </div>
+        <p id="practice-hint" class="muted" hidden></p>
+        <p id="practice-result" class="muted"></p>
+      </div>
       <div class="zoom-controls">
         <button id="btn-zoom-in"    title="拡大 (Ctrl+ホイール)">＋</button>
         <button id="btn-zoom-out"   title="縮小 (Ctrl+ホイール)">−</button>
