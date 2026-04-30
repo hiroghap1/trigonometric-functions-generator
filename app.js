@@ -66,6 +66,31 @@ const zoomIndicator = document.getElementById("zoom-indicator");
 
 let panState = null;
 
+// -------- Tips データ（init より前に必要） --------
+const TIPS = [
+  "sin² θ + cos² θ = 1 — 単位円から導かれる魔法の式🌸",
+  "sin と cos は π/2 ずれた波。位相をずらすだけで両者は入れ替わる",
+  "周波数 b が大きいほど、波は細かく振動する",
+  "音は sin 波の組み合わせ → フーリエ級数の基礎🎵",
+  "微分: sin → cos → -sin → -cos → sin の4周期で戻る⚡",
+  "tan = sin/cos なので cos = 0 (x = π/2) で発散",
+  "リサジュー曲線は2方向の振動を合成する。比率を整数にすると閉じた形に🌀",
+  "音の協和音は周波数比 2:3 などの整数比が綺麗な時に生まれる",
+  "弦をはじくと整数倍音が出る → 自然界に潜むフーリエ級数🎼",
+  "sin(x) ≈ x (x が小さいとき) — テイラー展開の最初の項",
+  "和積公式: sin(A) + sin(B) = 2 sin((A+B)/2) cos((A-B)/2)",
+  "倍角: sin(2x) = 2 sin(x) cos(x), cos(2x) = cos²(x) - sin²(x)",
+  "オイラーの式: e^(iθ) = cos θ + i sin θ — 数学で最も美しい等式の1つ✨",
+  "うなり: 周波数の近い2つの波を重ねると、ゆっくりした強弱が生まれる",
+  "AM変調: cos(2πft) × cos(2πf_c t) で振幅変調📻",
+  "FM変調: cos(2πft + sin(2πf_m t)) で位相が揺れて音色が変わる🎙",
+  "矩形波 = 奇数倍音だけの正弦波の合計 (4/π × Σ sin((2k-1)x)/(2k-1))",
+  "ノコギリ波 = 全倍音の合計 (Σ sin(kx)/k)",
+  "三角波 = 奇数倍音 + 1/k² で減衰",
+  "極座標 r = 1 + cos(θ) はカージオイド (ハート♡)",
+];
+let tipIndex = 0;
+
 // =========================================================================
 // 初期化
 // =========================================================================
@@ -344,12 +369,20 @@ function pasteClipboard() {
   pushHistory();
   const idMap = {};
   selectedIds.clear();
+  // 画面中心からクリップボードのbboxの中心がぴったり来るようにオフセット
+  const xs = clipboard.nodes.map((n) => n.x);
+  const ys = clipboard.nodes.map((n) => n.y);
+  const bbW = Math.max(...xs) - Math.min(...xs);
+  const bbH = Math.max(...ys) - Math.min(...ys);
+  const c = visibleCenter();
+  const ox = c.x - bbW / 2 - 50 + (Math.random() - 0.5) * 30;
+  const oy = c.y - bbH / 2 - 30 + (Math.random() - 0.5) * 30;
   clipboard.nodes.forEach((n) => {
     const newId = "n" + state.seq++;
     idMap[n._oldId] = newId;
     state.nodes.push({
       id: newId, kind: n.kind, name: n.name,
-      x: n.x + 60, y: n.y + 60,
+      x: Math.round(n.x + ox), y: Math.round(n.y + oy),
       params: { ...n.params },
     });
     selectedIds.add(newId);
@@ -428,6 +461,26 @@ function resetView() {
   save();
 }
 
+// 現在見えている領域（論理座標）の中心とサイズ
+function visibleCenter() {
+  const r = canvasWrap.getBoundingClientRect();
+  const v = state.view;
+  return {
+    x: (r.width  / 2 - v.panX) / v.zoom,
+    y: (r.height / 2 - v.panY) / v.zoom,
+  };
+}
+function visibleRect() {
+  const r = canvasWrap.getBoundingClientRect();
+  const v = state.view;
+  return {
+    x: -v.panX / v.zoom,
+    y: -v.panY / v.zoom,
+    w: r.width  / v.zoom,
+    h: r.height / v.zoom,
+  };
+}
+
 // =========================================================================
 // ノード操作
 // =========================================================================
@@ -435,12 +488,12 @@ function addNode(kind, x, y) {
   const def = KIND_DEFS[kind];
   if (!def) return;
   pushHistory();
-  const rect = canvas.getBoundingClientRect();
+  const c = visibleCenter();
   const node = {
     id: "n" + state.seq++,
     kind, name: def.label,
-    x: x ?? Math.round(rect.width / 2 - 50 + Math.random() * 100 - 50),
-    y: y ?? Math.round(rect.height / 2 - 30 + Math.random() * 100 - 50),
+    x: x ?? Math.round(c.x - 50 + (Math.random() - 0.5) * 80),
+    y: y ?? Math.round(c.y - 30 + (Math.random() - 0.5) * 80),
     params: { ...def.defaults },
   };
   state.nodes.push(node);
@@ -519,12 +572,12 @@ function toggleGroupNode(groupId, nodeId) {
 // =========================================================================
 function addNote() {
   pushHistory();
-  const rect = canvas.getBoundingClientRect();
+  const c = visibleCenter();
   state.notes.push({
     id: "m" + state.seq++,
     text: "メモを書いてね📝",
-    x: Math.round(rect.width / 2 - 60 + Math.random() * 60),
-    y: Math.round(rect.height / 2 - 30 + Math.random() * 60),
+    x: Math.round(c.x - 70 + (Math.random() - 0.5) * 60),
+    y: Math.round(c.y - 35 + (Math.random() - 0.5) * 60),
     w: 140, h: 70,
     rotate: -2,
     color: "#fff8c8",
@@ -1674,51 +1727,56 @@ function loadSample(kind) {
   state = createEmptyState();
   applyTheme(state.theme || document.body.dataset.theme || "pastel");
   applyView();
-  const cw = canvas.clientWidth || 700;
-  const ch = canvas.clientHeight || 500;
-
-  const at = (x, y) => ({ x, y });
+  const v = visibleRect();
+  // 後方互換: 既存サンプルコードは「左上が(0,0), 右下が(cw,ch)」前提で書かれている
+  // ので、見えている領域に対する仮想原点として visibleRect の左上を使う
+  const ox = v.x, oy = v.y;
+  const cw = v.w || 700;
+  const ch = v.h || 500;
+  const _x = (px) => Math.round(ox + px);
+  const _y = (py) => Math.round(oy + py);
 
   if (kind === "basic") {
-    const a = mkNode("sin",     80, ch / 2 - 40);
-    const o = mkNode("output", cw - 280, ch / 2 - 60);
+    const a = mkNode("sin",    _x(40),     _y(ch / 2 - 40));
+    const o = mkNode("output", _x(cw - 280), _y(ch / 2 - 60));
     addEdgeRaw(a.id, o.id);
   } else if (kind === "sum") {
-    const s   = mkNode("sin",   60, 60);
-    const c   = mkNode("cos",   60, ch - 160);
-    const add = mkNode("add",   cw / 2 - 60, ch / 2 - 30);
-    const o   = mkNode("output", cw - 280, ch / 2 - 60);
+    const s   = mkNode("sin",    _x(40),       _y(40));
+    const c   = mkNode("cos",    _x(40),       _y(ch - 160));
+    const add = mkNode("add",    _x(cw / 2 - 60), _y(ch / 2 - 30));
+    const o   = mkNode("output", _x(cw - 280),    _y(ch / 2 - 60));
     addEdgeRaw(s.id, add.id);
     addEdgeRaw(c.id, add.id);
     addEdgeRaw(add.id, o.id);
   } else if (kind === "beat") {
-    const s1 = mkNode("sin",   60, 60,           { a: 1, b: 1.0 });
-    const s2 = mkNode("sin",   60, ch - 160,      { a: 1, b: 1.1 });
-    const add = mkNode("add",  cw / 2 - 60, ch / 2 - 30);
-    const o   = mkNode("output", cw - 280, ch / 2 - 60);
+    const s1  = mkNode("sin",    _x(40),       _y(40),       { a: 1, b: 1.0 });
+    const s2  = mkNode("sin",    _x(40),       _y(ch - 160), { a: 1, b: 1.1 });
+    const add = mkNode("add",    _x(cw / 2 - 60), _y(ch / 2 - 30));
+    const o   = mkNode("output", _x(cw - 280),    _y(ch / 2 - 60));
     addEdgeRaw(s1.id, add.id); addEdgeRaw(s2.id, add.id); addEdgeRaw(add.id, o.id);
   } else if (kind === "fourier") {
     const harmonics = [1, 3, 5, 7, 9];
-    const add = mkNode("add", cw / 2 - 60, ch / 2 - 30);
+    const add = mkNode("add", _x(cw / 2 - 60), _y(ch / 2 - 30));
     harmonics.forEach((h, i) => {
-      const n = mkNode("sin", 60, 30 + i * 70, { a: 1 / h, b: h, c: 0, d: 0 });
+      const n = mkNode("sin", _x(40), _y(20 + i * 70), { a: 1 / h, b: h, c: 0, d: 0 });
       addEdgeRaw(n.id, add.id);
     });
-    const o = mkNode("output", cw - 280, ch / 2 - 60);
+    const o = mkNode("output", _x(cw - 280), _y(ch / 2 - 60));
     addEdgeRaw(add.id, o.id);
   } else if (kind === "lissajous") {
-    const sx = mkNode("sin", 60, 80,         { a: 1, b: 3 });
-    const sy = mkNode("sin", 60, ch - 160,   { a: 1, b: 2, c: Math.PI / 2 });
-    const o  = mkNode("output", cw - 280, ch / 2 - 60, { mode: "lissajous" });
+    const sx = mkNode("sin",    _x(40),       _y(60),       { a: 1, b: 3 });
+    const sy = mkNode("sin",    _x(40),       _y(ch - 160), { a: 1, b: 2, c: Math.PI / 2 });
+    const o  = mkNode("output", _x(cw - 280), _y(ch / 2 - 60), { mode: "lissajous" });
     addEdgeRaw(sx.id, o.id); addEdgeRaw(sy.id, o.id);
   } else if (kind === "pendulum") {
-    const c = mkNode("cos", 60, ch / 2 - 30, { a: 1, b: 1, c: 0, d: 0, useTime: true });
-    const o = mkNode("output", cw - 280, ch / 2 - 60);
+    const c = mkNode("cos",    _x(40),       _y(ch / 2 - 30), { a: 1, b: 1, c: 0, d: 0, useTime: true });
+    const o = mkNode("output", _x(cw - 280), _y(ch / 2 - 60));
     addEdgeRaw(c.id, o.id);
-    const m = state.notes.push({
+    state.notes.push({
       id: "m" + state.seq++,
       text: "θ(t) = cos(t)\n振り子の単振動🪀",
-      x: cw / 2 - 80, y: 60, w: 160, h: 70, rotate: -3, color: "#fff8c8", attached: c.id,
+      x: _x(cw / 2 - 80), y: _y(40),
+      w: 160, h: 70, rotate: -3, color: "#fff8c8", attached: c.id,
     });
   }
   save(); renderAll();
@@ -2192,27 +2250,33 @@ function autoLayout(rootId) {
     byLevel[lv].push(id);
   });
   const xStep = 200, yStep = 110;
-  const cw = canvas.clientWidth || 700;
-  const rightX = Math.max(cw - 280, 320);
+  const v = visibleRect();
+  // 出力（lv=0）を見えている領域の右寄りに置く
+  const rightX = Math.round(v.x + v.w - 260);
   Object.entries(byLevel).forEach(([lv, ids]) => {
     const x = rightX - parseInt(lv, 10) * xStep;
+    const groupH = (ids.length - 1) * yStep;
+    const startY = Math.round(v.y + v.h / 2 - groupH / 2);
     ids.forEach((id, i) => {
       const node = state.nodes.find((n) => n.id === id);
       if (!node) return;
-      node.x = Math.max(20, x);
-      node.y = 60 + i * yStep;
+      node.x = x;
+      node.y = startY + i * yStep;
     });
   });
 }
 
 function autoLayoutAll() {
   pushHistory();
+  const v = visibleRect();
   const outputs = state.nodes.filter((n) => n.kind === "output");
   if (outputs.length === 0) {
-    // 出力ノードがない場合は左から右へ単純整列
+    // 出力ノードがない場合は見えている領域内で左から右へ単純整列
+    const cols = 4;
+    const xStep = Math.min(180, (v.w - 80) / cols);
     state.nodes.forEach((n, i) => {
-      n.x = 60 + (i % 4) * 180;
-      n.y = 60 + Math.floor(i / 4) * 110;
+      n.x = Math.round(v.x + 30 + (i % cols) * xStep);
+      n.y = Math.round(v.y + 30 + Math.floor(i / cols) * 110);
     });
   } else {
     outputs.forEach((o) => autoLayout(o.id));
@@ -2223,29 +2287,6 @@ function autoLayoutAll() {
 // =========================================================================
 // Tips
 // =========================================================================
-const TIPS = [
-  "sin² θ + cos² θ = 1 — 単位円から導かれる魔法の式🌸",
-  "sin と cos は π/2 ずれた波。位相をずらすだけで両者は入れ替わる",
-  "周波数 b が大きいほど、波は細かく振動する",
-  "音は sin 波の組み合わせ → フーリエ級数の基礎🎵",
-  "微分: sin → cos → -sin → -cos → sin の4周期で戻る⚡",
-  "tan = sin/cos なので cos = 0 (x = π/2) で発散",
-  "リサジュー曲線は2方向の振動を合成する。比率を整数にすると閉じた形に🌀",
-  "音の協和音は周波数比 2:3 などの整数比が綺麗な時に生まれる",
-  "弦をはじくと整数倍音が出る → 自然界に潜むフーリエ級数🎼",
-  "sin(x) ≈ x (x が小さいとき) — テイラー展開の最初の項",
-  "和積公式: sin(A) + sin(B) = 2 sin((A+B)/2) cos((A-B)/2)",
-  "倍角: sin(2x) = 2 sin(x) cos(x), cos(2x) = cos²(x) - sin²(x)",
-  "オイラーの式: e^(iθ) = cos θ + i sin θ — 数学で最も美しい等式の1つ✨",
-  "うなり: 周波数の近い2つの波を重ねると、ゆっくりした強弱が生まれる",
-  "AM変調: cos(2πft) × cos(2πf_c t) で振幅変調📻",
-  "FM変調: cos(2πft + sin(2πf_m t)) で位相が揺れて音色が変わる🎙",
-  "矩形波 = 奇数倍音だけの正弦波の合計 (4/π × Σ sin((2k-1)x)/(2k-1))",
-  "ノコギリ波 = 全倍音の合計 (Σ sin(kx)/k)",
-  "三角波 = 奇数倍音 + 1/k² で減衰",
-  "極座標 r = 1 + cos(θ) はカージオイド (ハート♡)",
-];
-let tipIndex = 0;
 function showNextTip() {
   const el = document.getElementById("tip-text");
   if (!el) return;
