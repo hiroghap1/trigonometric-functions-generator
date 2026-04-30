@@ -36,6 +36,7 @@
         <div id="canvas" class="canvas"></div>
       </div>
       <div id="hint-tip" class="hint-tip" hidden></div>
+      <div id="select-rect" class="select-rect" hidden></div>
       <div class="zoom-controls">
         <button id="btn-zoom-in"    title="拡大 (Ctrl+ホイール)">＋</button>
         <button id="btn-zoom-out"   title="縮小 (Ctrl+ホイール)">−</button>
@@ -90,6 +91,27 @@
         <div class="palette">
           <button class="chip" id="btn-add-group">🌈 グループ</button>
           <button class="chip" id="btn-add-note">📝 メモ</button>
+        </div>
+      </details>
+
+      <details open>
+        <summary>📐 数式から作る</summary>
+        <div class="formula-input-wrap">
+          <input type="text" id="formula-input" placeholder="例: sin(2x)+cos(x)" />
+          <div class="palette">
+            <button class="chip" id="btn-formula">✨ 作る</button>
+            <button class="chip" id="btn-auto-layout">🌟 整列</button>
+          </div>
+          <p class="muted">対応: sin/cos/tan/cot/sec/csc, π, +,-,*,/, 数値, 括弧</p>
+          <p class="muted" id="formula-msg"></p>
+        </div>
+      </details>
+
+      <details open>
+        <summary>💡 三角関数 Tips</summary>
+        <div class="tips-area">
+          <p id="tip-text" class="tip-text"></p>
+          <button class="chip" id="btn-tip-next">▶ 次のTips</button>
         </div>
       </details>
 

@@ -35,7 +35,8 @@ let state = load() || createEmptyState();
 let undoStack = [];
 let redoStack = [];
 
-let selectedId = null;        // ノードID
+let selectedId = null;        // ノードID（プライマリ）
+let selectedIds = new Set();  // 複数選択
 let selectedEdgeId = null;    // エッジID
 let selectedGroupId = null;
 let selectedNoteId = null;
@@ -45,6 +46,8 @@ let connectState = null;
 let curveDragState = null;
 let noteDragState = null;
 let noteResizeState = null;
+let rectSelectState = null;
+let clipboard = null;
 
 let animState = { playing: false, t: 0, raf: 0 };
 let audioState = { ctx: null, src: null };
@@ -124,12 +127,25 @@ function bindUi() {
   // 検索
   document.getElementById("search").addEventListener("input", onSearch);
 
-  // キャンバスのパン / ズーム
+  // キャンバスのパン / ズーム / 矩形選択
   canvasWrap.addEventListener("mousedown", onCanvasMouseDown);
   canvasWrap.addEventListener("wheel", onWheel, { passive: false });
   document.getElementById("btn-zoom-in").addEventListener("click",    () => zoomBy(1.2));
   document.getElementById("btn-zoom-out").addEventListener("click",   () => zoomBy(1 / 1.2));
   document.getElementById("btn-zoom-reset").addEventListener("click", resetView);
+
+  // 数式パーサ / 自動整列
+  document.getElementById("btn-formula").addEventListener("click", () => {
+    applyFormula(document.getElementById("formula-input").value);
+  });
+  document.getElementById("formula-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") applyFormula(e.target.value);
+  });
+  document.getElementById("btn-auto-layout").addEventListener("click", autoLayoutAll);
+
+  // Tips
+  document.getElementById("btn-tip-next").addEventListener("click", showNextTip);
+  showNextTip();
 
   document.addEventListener("click", (e) => {
     if (!edgePopup.contains(e.target) && !e.target.classList.contains("edge-path")) {
@@ -154,14 +170,19 @@ function bindUi() {
   // キーボード
   document.addEventListener("keydown", (e) => {
     if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); }
-    else if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") ||
-             ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "z")) { e.preventDefault(); redo(); }
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl && !e.shiftKey && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); }
+    else if ((ctrl && e.key.toLowerCase() === "y") ||
+             (ctrl && e.shiftKey && e.key.toLowerCase() === "z")) { e.preventDefault(); redo(); }
+    else if (ctrl && e.key.toLowerCase() === "c") { e.preventDefault(); copySelected(); }
+    else if (ctrl && e.key.toLowerCase() === "v") { e.preventDefault(); pasteClipboard(); }
+    else if (ctrl && e.key.toLowerCase() === "a") { e.preventDefault(); selectAll(); }
+    else if (ctrl && e.key.toLowerCase() === "d") { e.preventDefault(); copySelected(); pasteClipboard(); }
     else if (e.key === "Delete" || e.key === "Backspace") {
-      if (selectedId) { deleteNode(selectedId); }
-      else if (selectedEdgeId) { deleteEdge(selectedEdgeId); }
-      else if (selectedNoteId) { deleteNote(selectedNoteId); }
-      else if (selectedGroupId) { deleteGroup(selectedGroupId); }
+      if (selectedIds.size > 0)       { deleteSelectedNodes(); }
+      else if (selectedEdgeId)        { deleteEdge(selectedEdgeId); }
+      else if (selectedNoteId)        { deleteNote(selectedNoteId); }
+      else if (selectedGroupId)       { deleteGroup(selectedGroupId); }
     }
   });
 
@@ -208,18 +229,153 @@ function applyView() {
 }
 
 function onCanvasMouseDown(e) {
-  // 空き地でのみパン開始（ノード/メモ/エッジパス/単位円スライダー等は除外）
+  // 空き地でのみ操作（ノード/メモ/エッジパス/単位円スライダー等は除外）
   const t = e.target;
   if (t !== canvasWrap && t !== canvasStage && t !== canvas &&
       t !== edgesSvg   && t !== overlaySvg) return;
-  panState = {
-    startX: e.clientX, startY: e.clientY,
-    origPanX: state.view.panX, origPanY: state.view.panY,
-    moved: false,
+  if (e.shiftKey) {
+    startRectSelect(e);
+  } else {
+    panState = {
+      startX: e.clientX, startY: e.clientY,
+      origPanX: state.view.panX, origPanY: state.view.panY,
+      moved: false,
+    };
+    canvasWrap.classList.add("panning");
+    document.addEventListener("mousemove", onPanMove);
+    document.addEventListener("mouseup",   onPanEnd);
+  }
+}
+
+// 矩形選択（Shift+ドラッグ）
+function startRectSelect(e) {
+  const r = canvasWrap.getBoundingClientRect();
+  rectSelectState = {
+    startX: e.clientX - r.left,
+    startY: e.clientY - r.top,
+    additive: e.ctrlKey || e.metaKey,
   };
-  canvasWrap.classList.add("panning");
-  document.addEventListener("mousemove", onPanMove);
-  document.addEventListener("mouseup",   onPanEnd);
+  const rect = document.getElementById("select-rect");
+  rect.style.left = rectSelectState.startX + "px";
+  rect.style.top  = rectSelectState.startY + "px";
+  rect.style.width = "0";
+  rect.style.height = "0";
+  rect.hidden = false;
+  document.addEventListener("mousemove", onRectSelectMove);
+  document.addEventListener("mouseup",   onRectSelectEnd);
+}
+function onRectSelectMove(e) {
+  if (!rectSelectState) return;
+  const r = canvasWrap.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  const left = Math.min(x, rectSelectState.startX);
+  const top  = Math.min(y, rectSelectState.startY);
+  const w = Math.abs(x - rectSelectState.startX);
+  const h = Math.abs(y - rectSelectState.startY);
+  const rect = document.getElementById("select-rect");
+  rect.style.left = left + "px"; rect.style.top = top + "px";
+  rect.style.width = w + "px";   rect.style.height = h + "px";
+}
+function onRectSelectEnd(e) {
+  document.removeEventListener("mousemove", onRectSelectMove);
+  document.removeEventListener("mouseup",   onRectSelectEnd);
+  if (!rectSelectState) return;
+  const r = canvasWrap.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  const left = Math.min(x, rectSelectState.startX);
+  const top  = Math.min(y, rectSelectState.startY);
+  const right  = Math.max(x, rectSelectState.startX);
+  const bottom = Math.max(y, rectSelectState.startY);
+  const v = state.view;
+  const lL = (left   - v.panX) / v.zoom, lT = (top    - v.panY) / v.zoom;
+  const lR = (right  - v.panX) / v.zoom, lB = (bottom - v.panY) / v.zoom;
+
+  if (!rectSelectState.additive) selectedIds.clear();
+  state.nodes.forEach((n) => {
+    const el = canvas.querySelector(`.node[data-id="${n.id}"]`);
+    if (!el) return;
+    const w = el.offsetWidth, h = el.offsetHeight;
+    if (n.x < lR && n.x + w > lL && n.y < lB && n.y + h > lT) {
+      selectedIds.add(n.id);
+    }
+  });
+  selectedId = selectedIds.size ? [...selectedIds][0] : null;
+  selectedEdgeId = selectedGroupId = selectedNoteId = null;
+
+  document.getElementById("select-rect").hidden = true;
+  rectSelectState = null;
+  renderNodes();
+  renderInspector();
+}
+
+// ===== 複数選択 / コピー&ペースト =====
+function selectAll() {
+  selectedIds = new Set(state.nodes.map((n) => n.id));
+  selectedId = state.nodes.length ? state.nodes[0].id : null;
+  selectedEdgeId = selectedGroupId = selectedNoteId = null;
+  renderNodes();
+  renderInspector();
+}
+function copySelected() {
+  if (selectedIds.size === 0) { toast("コピーするノードを選んでね"); return; }
+  const nodes = state.nodes.filter((n) => selectedIds.has(n.id));
+  if (!nodes.length) return;
+  const minX = Math.min(...nodes.map((n) => n.x));
+  const minY = Math.min(...nodes.map((n) => n.y));
+  const ids = new Set(nodes.map((n) => n.id));
+  clipboard = {
+    nodes: nodes.map((n) => ({
+      kind: n.kind, name: n.name,
+      x: n.x - minX, y: n.y - minY,
+      params: { ...n.params },
+      _oldId: n.id,
+    })),
+    edges: state.edges.filter((e) => ids.has(e.from) && ids.has(e.to))
+      .map((e) => ({
+        from: e.from, to: e.to,
+        label: e.label || "", style: e.style || "single",
+        ctrl: e.ctrl ? { ...e.ctrl } : null,
+      })),
+  };
+  toast(`📋 コピー (${nodes.length})`);
+}
+function pasteClipboard() {
+  if (!clipboard || !clipboard.nodes.length) return;
+  pushHistory();
+  const idMap = {};
+  selectedIds.clear();
+  clipboard.nodes.forEach((n) => {
+    const newId = "n" + state.seq++;
+    idMap[n._oldId] = newId;
+    state.nodes.push({
+      id: newId, kind: n.kind, name: n.name,
+      x: n.x + 60, y: n.y + 60,
+      params: { ...n.params },
+    });
+    selectedIds.add(newId);
+  });
+  clipboard.edges.forEach((e) => {
+    state.edges.push({
+      id: "e" + state.seq++,
+      from: idMap[e.from], to: idMap[e.to],
+      label: e.label, style: e.style, ctrl: e.ctrl ? { ...e.ctrl } : null,
+    });
+  });
+  selectedId = [...selectedIds][0] || null;
+  save(); renderAll();
+  toast(`✨ ペースト (${clipboard.nodes.length})`);
+}
+function deleteSelectedNodes() {
+  if (selectedIds.size === 0) return;
+  pushHistory();
+  const ids = new Set(selectedIds);
+  state.nodes = state.nodes.filter((n) => !ids.has(n.id));
+  state.edges = state.edges.filter((e) => !ids.has(e.from) && !ids.has(e.to));
+  state.groups.forEach((g) => g.nodeIds = g.nodeIds.filter((nid) => !ids.has(nid)));
+  state.notes.forEach((m) => { if (ids.has(m.attached)) m.attached = null; });
+  selectedIds.clear();
+  selectedId = null;
+  save(); renderAll();
 }
 function onPanMove(e) {
   if (!panState) return;
@@ -241,7 +397,10 @@ function onPanEnd() {
 
 function onWheel(e) {
   e.preventDefault();
-  const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+  // deltaY をゆるやかに反映（指数で連続的に変化）
+  const unit = e.deltaMode === 1 ? 16 : (e.deltaMode === 2 ? 200 : 1);
+  const dy = Math.max(-60, Math.min(60, e.deltaY * unit));
+  const factor = Math.exp(-dy * 0.0025);
   zoomAt(factor, e.clientX, e.clientY);
 }
 function zoomBy(factor) {
@@ -286,6 +445,7 @@ function addNode(kind, x, y) {
   };
   state.nodes.push(node);
   selectedId = node.id;
+  selectedIds = new Set([node.id]);
   selectedEdgeId = selectedGroupId = selectedNoteId = null;
   save();
   renderAll();
@@ -297,6 +457,7 @@ function deleteNode(id) {
   state.groups.forEach((g) => g.nodeIds = g.nodeIds.filter((nid) => nid !== id));
   state.notes.forEach((m) => { if (m.attached === id) m.attached = null; });
   if (selectedId === id) selectedId = null;
+  selectedIds.delete(id);
   save(); renderAll();
 }
 function addEdge(from, to) {
@@ -415,6 +576,7 @@ function clearAll() {
 }
 function clearSelection() {
   selectedId = selectedEdgeId = selectedGroupId = selectedNoteId = null;
+  selectedIds.clear();
   edgePopup.hidden = true;
   renderAll();
 }
@@ -583,7 +745,7 @@ function renderNodes() {
     const def = KIND_DEFS[node.kind];
     if (!def) return;
     const el = document.createElement("div");
-    el.className = `node kind-${node.kind}` + (node.id === selectedId ? " selected" : "");
+    el.className = `node kind-${node.kind}` + (selectedIds.has(node.id) ? " selected" : "");
     el.dataset.id = node.id;
     el.style.left = node.x + "px";
     el.style.top  = node.y + "px";
@@ -621,6 +783,12 @@ function renderNodes() {
       });
       range.addEventListener("mousedown", (e) => e.stopPropagation());
       drawUnitCircle(node);
+    }
+
+    // 出力ノードのグラフはホバーで値表示
+    if (node.kind === "output") {
+      const cv = el.querySelector("canvas.graph");
+      if (cv) attachGraphHover(cv, node);
     }
   });
 
@@ -857,6 +1025,8 @@ function subtitleFor(node) {
 // =========================================================================
 // 出力グラフ描画
 // =========================================================================
+const OVERLAY_COLORS = ["#ff8fb5", "#6fd3a3", "#9b8cff", "#ffae5a", "#5ab8e6", "#d97766"];
+
 function drawOutput(node) {
   const el = canvas.querySelector(`.node[data-id="${node.id}"]`);
   if (!el) return;
@@ -877,21 +1047,30 @@ function drawOutput(node) {
     drawAxes(ctx, w, h, lineCol);
     const xMin = -2 * Math.PI, xMax = 2 * Math.PI;
     const yScale = 18;
-    ctx.beginPath();
-    ctx.strokeStyle = edgeCol; ctx.lineWidth = 2;
-    let started = false, lastY = null;
-    for (let px = 0; px <= w; px++) {
-      const x = xMin + (px / w) * (xMax - xMin);
-      let y = evaluate(node.id, x, t);
-      if (!isFinite(y)) { started = false; continue; }
-      y = Math.max(-h, Math.min(h, y));
-      const py = h / 2 - y * yScale;
-      if (!started || (lastY !== null && Math.abs(py - lastY) > h * 0.7)) {
-        ctx.moveTo(px, py); started = true;
-      } else ctx.lineTo(px, py);
-      lastY = py;
+    const ins = outputInputs(node.id);
+    if (ins.length === 0) {
+      ctx.fillStyle = "#bbb";
+      ctx.font = "11px sans-serif";
+      ctx.fillText("入力を繋いでね", 8, h / 2);
     }
-    ctx.stroke();
+    ins.forEach((inputId, idx) => {
+      const color = ins.length === 1 ? edgeCol : OVERLAY_COLORS[idx % OVERLAY_COLORS.length];
+      ctx.beginPath();
+      ctx.strokeStyle = color; ctx.lineWidth = 2;
+      let started = false, lastY = null;
+      for (let px = 0; px <= w; px++) {
+        const x = xMin + (px / w) * (xMax - xMin);
+        let y = evaluate(inputId, x, t);
+        if (!isFinite(y)) { started = false; continue; }
+        y = Math.max(-h, Math.min(h, y));
+        const py = h / 2 - y * yScale;
+        if (!started || (lastY !== null && Math.abs(py - lastY) > h * 0.7)) {
+          ctx.moveTo(px, py); started = true;
+        } else ctx.lineTo(px, py);
+        lastY = py;
+      }
+      ctx.stroke();
+    });
   } else if (mode === "lissajous") {
     // 入力2つを (x(t), y(t)) として描く
     const ins = outputInputs(node.id);
@@ -936,9 +1115,52 @@ function drawOutput(node) {
   }
 
   if (formulaEl) {
-    const expr = formulaOf(node.id);
-    formulaEl.textContent = (mode === "graph" ? "y = " : mode === "polar" ? "r = " : "(x,y) = ") + expr;
+    if (mode === "graph") {
+      const ins = outputInputs(node.id);
+      if (ins.length > 1) {
+        formulaEl.innerHTML = ins.map((id, idx) => {
+          const c = OVERLAY_COLORS[idx % OVERLAY_COLORS.length];
+          return `<span style="color:${c}">y${idx + 1} = ${escapeHtml(formulaOf(id))}</span>`;
+        }).join("<br>");
+      } else {
+        formulaEl.textContent = "y = " + (ins.length ? formulaOf(ins[0]) : "(未接続)");
+      }
+    } else if (mode === "polar") {
+      formulaEl.textContent = "r = " + formulaOf(node.id);
+    } else {
+      formulaEl.textContent = "(x,y) = " + formulaOf(node.id);
+    }
   }
+}
+
+// グラフ上をホバーすると (x, y) 値をツールチップ表示
+function attachGraphHover(canvasEl, node) {
+  canvasEl.addEventListener("mousemove", (e) => onGraphHover(e, canvasEl, node));
+  canvasEl.addEventListener("mouseleave", () => { hintTip.hidden = true; });
+}
+function onGraphHover(e, cv, node) {
+  const r = cv.getBoundingClientRect();
+  const px = e.clientX - r.left;
+  const xMin = -2 * Math.PI, xMax = 2 * Math.PI;
+  const x = xMin + (Math.max(0, Math.min(cv.offsetWidth, px)) / cv.offsetWidth) * (xMax - xMin);
+  const t = animState.t;
+  const ins = outputInputs(node.id);
+  let bodyHtml = `x = ${x.toFixed(3)}`;
+  if (ins.length === 0) {
+    bodyHtml += "<br><span style='color:#bbb'>(未接続)</span>";
+  } else {
+    ins.forEach((id, idx) => {
+      const y = evaluate(id, x, t);
+      const c = ins.length > 1 ? OVERLAY_COLORS[idx % OVERLAY_COLORS.length] : "var(--ink)";
+      const label = ins.length > 1 ? `y${idx + 1}` : "y";
+      bodyHtml += `<br><span style='color:${c}'>${label} = ${isFinite(y) ? y.toFixed(3) : "∞"}</span>`;
+    });
+  }
+  const wrap = canvasWrap.getBoundingClientRect();
+  hintTip.innerHTML = bodyHtml;
+  hintTip.style.left = (e.clientX - wrap.left + 14) + "px";
+  hintTip.style.top  = (e.clientY - wrap.top + 14) + "px";
+  hintTip.hidden = false;
 }
 
 function drawAxes(ctx, w, h, lineCol) {
@@ -1180,12 +1402,36 @@ function onNodeMouseDown(e) {
       e.target.classList.contains("uc-range")) return;
   const el = e.currentTarget;
   const id = el.dataset.id;
-  selectedId = id; selectedEdgeId = selectedGroupId = selectedNoteId = null;
+
+  // 選択を更新
+  if (e.shiftKey || e.ctrlKey || e.metaKey) {
+    if (selectedIds.has(id)) {
+      selectedIds.delete(id);
+      if (selectedId === id) selectedId = selectedIds.size ? [...selectedIds][0] : null;
+    } else {
+      selectedIds.add(id);
+      selectedId = id;
+    }
+  } else {
+    if (!selectedIds.has(id)) {
+      selectedIds = new Set([id]);
+      selectedId = id;
+    } else {
+      selectedId = id;
+    }
+  }
+  selectedEdgeId = selectedGroupId = selectedNoteId = null;
   edgePopup.hidden = true;
-  const node = state.nodes.find((n) => n.id === id);
+
+  // 複数選択時は選択中の全ノードを一緒にドラッグ
+  const ids = [...selectedIds].map((nid) => {
+    const n = state.nodes.find((nn) => nn.id === nid);
+    return n ? { id: nid, origX: n.x, origY: n.y } : null;
+  }).filter(Boolean);
+
   dragState = {
-    id, startX: e.clientX, startY: e.clientY,
-    origX: node.x, origY: node.y, moved: false,
+    startX: e.clientX, startY: e.clientY,
+    ids, moved: false,
   };
   document.addEventListener("mousemove", onDragMove);
   document.addEventListener("mouseup",   onDragEnd);
@@ -1194,14 +1440,18 @@ function onNodeMouseDown(e) {
 }
 function onDragMove(e) {
   if (!dragState) return;
-  const node = state.nodes.find((n) => n.id === dragState.id);
-  if (!node) return;
   if (!dragState.moved) { pushHistory(); dragState.moved = true; }
   const z = state.view.zoom;
-  node.x = dragState.origX + (e.clientX - dragState.startX) / z;
-  node.y = dragState.origY + (e.clientY - dragState.startY) / z;
-  const el = canvas.querySelector(`.node[data-id="${node.id}"]`);
-  if (el) { el.style.left = node.x + "px"; el.style.top = node.y + "px"; }
+  const dx = (e.clientX - dragState.startX) / z;
+  const dy = (e.clientY - dragState.startY) / z;
+  dragState.ids.forEach(({ id, origX, origY }) => {
+    const node = state.nodes.find((n) => n.id === id);
+    if (!node) return;
+    node.x = origX + dx;
+    node.y = origY + dy;
+    const el = canvas.querySelector(`.node[data-id="${id}"]`);
+    if (el) { el.style.left = node.x + "px"; el.style.top = node.y + "px"; }
+  });
   renderEdges();
   renderGroups();
 }
@@ -1275,6 +1525,7 @@ function onEdgeClick(edgeId, e) {
   e.stopPropagation();
   selectedEdgeId = edgeId;
   selectedId = selectedGroupId = selectedNoteId = null;
+  selectedIds.clear();
   // ポップアップ（ビューポート基準で配置）
   edgePopup.style.left = (e.clientX + 10) + "px";
   edgePopup.style.top  = (e.clientY + 10) + "px";
@@ -1288,6 +1539,7 @@ function onNoteMouseDown(noteId, e) {
   if (e.target.classList.contains("resize-h")) return;
   if (e.target.classList.contains("del")) return;
   selectedNoteId = noteId; selectedId = selectedEdgeId = selectedGroupId = null;
+  selectedIds.clear();
   const m = state.notes.find((n) => n.id === noteId);
   noteDragState = {
     id: noteId, startX: e.clientX, startY: e.clientY,
@@ -1704,4 +1956,299 @@ function fmtSigned(n) {
   if (!n) return "";
   const s = fmt(Math.abs(n));
   return (n >= 0 ? " + " : " - ") + s;
+}
+
+// =========================================================================
+// 数式パーサ (sin/cos/tan/cot/sec/csc + 四則演算 + π / 数値 / 括弧)
+// =========================================================================
+function tokenize(s) {
+  const out = [];
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (/\s/.test(c)) { i++; continue; }
+    if (c === "π") { out.push({ type: "IDENT", value: "pi" }); i++; continue; }
+    if (/[0-9.]/.test(c)) {
+      let j = i;
+      while (j < s.length && /[0-9.]/.test(s[j])) j++;
+      out.push({ type: "NUM", value: parseFloat(s.slice(i, j)) });
+      i = j; continue;
+    }
+    if (/[a-zA-Z_]/.test(c)) {
+      let j = i;
+      while (j < s.length && /[a-zA-Z0-9_]/.test(s[j])) j++;
+      out.push({ type: "IDENT", value: s.slice(i, j).toLowerCase() });
+      i = j; continue;
+    }
+    if ("+-*/".includes(c)) { out.push({ type: "OP", value: c }); i++; continue; }
+    if (c === "(") { out.push({ type: "LPAREN" }); i++; continue; }
+    if (c === ")") { out.push({ type: "RPAREN" }); i++; continue; }
+    throw new Error("不明な文字: " + c);
+  }
+  // 暗黙の積を挿入: NUM ( | NUM IDENT | RPAREN ( | IDENT ( -> only for non-func
+  const inserted = [];
+  for (let k = 0; k < out.length; k++) {
+    const cur = out[k], next = out[k + 1];
+    inserted.push(cur);
+    if (!next) continue;
+    const isFnCall = cur.type === "IDENT" && next.type === "LPAREN" &&
+      ["sin", "cos", "tan", "cot", "sec", "csc"].includes(cur.value);
+    if (
+      (cur.type === "NUM"   && (next.type === "IDENT" || next.type === "LPAREN")) ||
+      (cur.type === "RPAREN" && (next.type === "IDENT" || next.type === "LPAREN")) ||
+      (cur.type === "IDENT" && next.type === "LPAREN" && !isFnCall) ||
+      (cur.type === "IDENT" && next.type === "IDENT")
+    ) {
+      inserted.push({ type: "OP", value: "*" });
+    }
+  }
+  inserted.push({ type: "EOF" });
+  return inserted;
+}
+
+function parseFormula(input) {
+  const tokens = tokenize(input);
+  let pos = 0;
+  const peek = () => tokens[pos];
+  const eat = (type, value) => {
+    const t = tokens[pos];
+    if (t.type !== type || (value !== undefined && t.value !== value))
+      throw new Error("予期せぬトークン: " + (t.value ?? t.type));
+    pos++; return t;
+  };
+  function expr() {
+    let left = term();
+    while (peek().type === "OP" && (peek().value === "+" || peek().value === "-")) {
+      const op = eat("OP").value;
+      left = { type: op === "+" ? "add" : "sub", left, right: term() };
+    }
+    return left;
+  }
+  function term() {
+    let left = factor();
+    while (peek().type === "OP" && (peek().value === "*" || peek().value === "/")) {
+      const op = eat("OP").value;
+      left = { type: op === "*" ? "mul" : "div", left, right: factor() };
+    }
+    return left;
+  }
+  function factor() {
+    if (peek().type === "OP" && peek().value === "-") { eat("OP"); return { type: "neg", value: factor() }; }
+    if (peek().type === "OP" && peek().value === "+") { eat("OP"); return factor(); }
+    return atom();
+  }
+  function atom() {
+    const t = peek();
+    if (t.type === "NUM")    { eat("NUM");    return { type: "num", value: t.value }; }
+    if (t.type === "LPAREN") { eat("LPAREN"); const e = expr(); eat("RPAREN"); return e; }
+    if (t.type === "IDENT") {
+      eat("IDENT");
+      const name = t.value;
+      if (peek().type === "LPAREN") {
+        eat("LPAREN"); const arg = expr(); eat("RPAREN");
+        return { type: "func", name, arg };
+      }
+      return { type: "ident", value: name };
+    }
+    throw new Error("予期せぬトークン: " + JSON.stringify(t));
+  }
+  const root = expr();
+  if (peek().type !== "EOF") throw new Error("末尾に余分なトークン");
+  return root;
+}
+
+// 線形 (Bx + C) として評価できれば返す
+function tryLinear(ast) {
+  function evalConst(a) {
+    if (a.type === "num") return a.value;
+    if (a.type === "ident") {
+      if (a.value === "pi") return Math.PI;
+      if (a.value === "e")  return Math.E;
+      return null;
+    }
+    if (a.type === "neg") { const v = evalConst(a.value); return v === null ? null : -v; }
+    if (["add", "sub", "mul", "div"].includes(a.type)) {
+      const l = evalConst(a.left), r = evalConst(a.right);
+      if (l === null || r === null) return null;
+      switch (a.type) { case "add": return l+r; case "sub": return l-r; case "mul": return l*r; case "div": return l/r; }
+    }
+    return null;
+  }
+  function lin(a) {
+    if (a.type === "num") return { b: 0, c: a.value };
+    if (a.type === "ident") {
+      if (a.value === "x") return { b: 1, c: 0 };
+      if (a.value === "pi") return { b: 0, c: Math.PI };
+      if (a.value === "e")  return { b: 0, c: Math.E };
+      return null;
+    }
+    if (a.type === "neg") { const v = lin(a.value); return v ? { b: -v.b, c: -v.c } : null; }
+    if (a.type === "add") { const l = lin(a.left), r = lin(a.right); return (l && r) ? { b: l.b + r.b, c: l.c + r.c } : null; }
+    if (a.type === "sub") { const l = lin(a.left), r = lin(a.right); return (l && r) ? { b: l.b - r.b, c: l.c - r.c } : null; }
+    if (a.type === "mul") {
+      const cL = evalConst(a.left), cR = evalConst(a.right);
+      if (cL !== null) { const r = lin(a.right); return r ? { b: cL * r.b, c: cL * r.c } : null; }
+      if (cR !== null) { const l = lin(a.left);  return l ? { b: l.b * cR, c: l.c * cR } : null; }
+      return null;
+    }
+    if (a.type === "div") {
+      const cR = evalConst(a.right);
+      if (cR !== null && cR !== 0) { const l = lin(a.left); return l ? { b: l.b / cR, c: l.c / cR } : null; }
+      return null;
+    }
+    return null;
+  }
+  return lin(ast);
+}
+
+function buildFromAst(ast) {
+  const FUNCS = ["sin", "cos", "tan", "cot", "sec", "csc"];
+  switch (ast.type) {
+    case "num":  return mkNode("const", 0, 0, { value: ast.value }).id;
+    case "ident":
+      if (ast.value === "pi") return mkNode("const", 0, 0, { value: Math.PI }).id;
+      if (ast.value === "e")  return mkNode("const", 0, 0, { value: Math.E }).id;
+      if (ast.value === "x")  throw new Error("x 単独の式は未対応です（関数の中で使ってね）");
+      throw new Error("未知の名前: " + ast.value);
+    case "func": {
+      if (!FUNCS.includes(ast.name)) throw new Error("未対応の関数: " + ast.name);
+      const lin = tryLinear(ast.arg);
+      if (!lin) throw new Error(`${ast.name}() の引数は Bx+C の形にしてね`);
+      return mkNode(ast.name, 0, 0, { a: 1, b: lin.b, c: lin.c, d: 0 }).id;
+    }
+    case "neg": {
+      // 数値なら直接
+      const lin = tryLinear({ type: "neg", value: ast.value });
+      if (lin && lin.b === 0) return mkNode("const", 0, 0, { value: lin.c }).id;
+      const inner = buildFromAst(ast.value);
+      const flip = mkNode("flip", 0, 0, { axis: "y" });
+      addEdgeRaw(inner, flip.id);
+      return flip.id;
+    }
+    case "mul": {
+      // (定数) × (関数 or 式) は a パラメータに畳み込む
+      const cL = (function ec(a) { return tryLinear(a) && tryLinear(a).b === 0 ? tryLinear(a).c : null; })(ast.left);
+      const cR = (function ec(a) { return tryLinear(a) && tryLinear(a).b === 0 ? tryLinear(a).c : null; })(ast.right);
+      if (cL !== null && ast.right.type === "func" && FUNCS.includes(ast.right.name)) {
+        const lin = tryLinear(ast.right.arg);
+        if (lin) return mkNode(ast.right.name, 0, 0, { a: cL, b: lin.b, c: lin.c, d: 0 }).id;
+      }
+      if (cR !== null && ast.left.type === "func" && FUNCS.includes(ast.left.name)) {
+        const lin = tryLinear(ast.left.arg);
+        if (lin) return mkNode(ast.left.name, 0, 0, { a: cR, b: lin.b, c: lin.c, d: 0 }).id;
+      }
+      // 一般: mul ノード
+      const op = mkNode("mul", 0, 0);
+      addEdgeRaw(buildFromAst(ast.left), op.id);
+      addEdgeRaw(buildFromAst(ast.right), op.id);
+      return op.id;
+    }
+    case "add": case "sub": case "div": {
+      const op = mkNode(ast.type, 0, 0);
+      addEdgeRaw(buildFromAst(ast.left), op.id);
+      addEdgeRaw(buildFromAst(ast.right), op.id);
+      return op.id;
+    }
+  }
+  throw new Error("内部エラー: " + ast.type);
+}
+
+function applyFormula(input) {
+  const msg = document.getElementById("formula-msg");
+  if (!input || !input.trim()) { msg.textContent = "式を入れてね"; return; }
+  try {
+    const ast = parseFormula(input);
+    pushHistory();
+    state = createEmptyState();
+    applyTheme(state.theme || document.body.dataset.theme || "pastel");
+    applyView();
+    const rootId = buildFromAst(ast);
+    const out = mkNode("output", 0, 0);
+    addEdgeRaw(rootId, out.id);
+    autoLayout(out.id);
+    save(); renderAll();
+    msg.textContent = "✨ 作ったよ";
+  } catch (err) {
+    msg.textContent = "❌ " + err.message;
+  }
+}
+
+// =========================================================================
+// 自動整列
+// =========================================================================
+function autoLayout(rootId) {
+  const levels = {};
+  const queue = [{ id: rootId, level: 0 }];
+  while (queue.length) {
+    const { id, level } = queue.shift();
+    const cur = levels[id];
+    if (cur !== undefined && cur >= level) continue;
+    levels[id] = level;
+    state.edges.filter((e) => e.to === id).forEach((e) => queue.push({ id: e.from, level: level + 1 }));
+  }
+  const byLevel = {};
+  Object.entries(levels).forEach(([id, lv]) => {
+    if (!byLevel[lv]) byLevel[lv] = [];
+    byLevel[lv].push(id);
+  });
+  const xStep = 200, yStep = 110;
+  const cw = canvas.clientWidth || 700;
+  const rightX = Math.max(cw - 280, 320);
+  Object.entries(byLevel).forEach(([lv, ids]) => {
+    const x = rightX - parseInt(lv, 10) * xStep;
+    ids.forEach((id, i) => {
+      const node = state.nodes.find((n) => n.id === id);
+      if (!node) return;
+      node.x = Math.max(20, x);
+      node.y = 60 + i * yStep;
+    });
+  });
+}
+
+function autoLayoutAll() {
+  pushHistory();
+  const outputs = state.nodes.filter((n) => n.kind === "output");
+  if (outputs.length === 0) {
+    // 出力ノードがない場合は左から右へ単純整列
+    state.nodes.forEach((n, i) => {
+      n.x = 60 + (i % 4) * 180;
+      n.y = 60 + Math.floor(i / 4) * 110;
+    });
+  } else {
+    outputs.forEach((o) => autoLayout(o.id));
+  }
+  save(); renderAll();
+}
+
+// =========================================================================
+// Tips
+// =========================================================================
+const TIPS = [
+  "sin² θ + cos² θ = 1 — 単位円から導かれる魔法の式🌸",
+  "sin と cos は π/2 ずれた波。位相をずらすだけで両者は入れ替わる",
+  "周波数 b が大きいほど、波は細かく振動する",
+  "音は sin 波の組み合わせ → フーリエ級数の基礎🎵",
+  "微分: sin → cos → -sin → -cos → sin の4周期で戻る⚡",
+  "tan = sin/cos なので cos = 0 (x = π/2) で発散",
+  "リサジュー曲線は2方向の振動を合成する。比率を整数にすると閉じた形に🌀",
+  "音の協和音は周波数比 2:3 などの整数比が綺麗な時に生まれる",
+  "弦をはじくと整数倍音が出る → 自然界に潜むフーリエ級数🎼",
+  "sin(x) ≈ x (x が小さいとき) — テイラー展開の最初の項",
+  "和積公式: sin(A) + sin(B) = 2 sin((A+B)/2) cos((A-B)/2)",
+  "倍角: sin(2x) = 2 sin(x) cos(x), cos(2x) = cos²(x) - sin²(x)",
+  "オイラーの式: e^(iθ) = cos θ + i sin θ — 数学で最も美しい等式の1つ✨",
+  "うなり: 周波数の近い2つの波を重ねると、ゆっくりした強弱が生まれる",
+  "AM変調: cos(2πft) × cos(2πf_c t) で振幅変調📻",
+  "FM変調: cos(2πft + sin(2πf_m t)) で位相が揺れて音色が変わる🎙",
+  "矩形波 = 奇数倍音だけの正弦波の合計 (4/π × Σ sin((2k-1)x)/(2k-1))",
+  "ノコギリ波 = 全倍音の合計 (Σ sin(kx)/k)",
+  "三角波 = 奇数倍音 + 1/k² で減衰",
+  "極座標 r = 1 + cos(θ) はカージオイド (ハート♡)",
+];
+let tipIndex = 0;
+function showNextTip() {
+  const el = document.getElementById("tip-text");
+  if (!el) return;
+  el.textContent = TIPS[tipIndex % TIPS.length];
+  tipIndex++;
 }
