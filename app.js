@@ -1938,23 +1938,85 @@ function buildCssExport() {
   const svgPaths = [];
   const svgRings = [];
 
-  // ---- 入力ノードを CSS calc 式に変換（sin/cos/const のみ。null = 不可） ----
-  function inputToCssTerm(nodeId, tVar) {
+  // ---- ノードを CSS の calc 式に変換（再帰的）----
+  // 戻り値はスクリーン y（下向き正、上ほど小さい px 値）の length 式。null なら不可。
+  // すべての項を calc(...) で包み、括弧つき数値を明示することで `+ -X` を回避する。
+  function nodeToCssTerm(nodeId, tVar, depth = 0) {
+    if (depth > 8) return null;
     const n = state.nodes.find((x) => x.id === nodeId);
     if (!n) return null;
     const p = n.params || {};
-    if (["sin", "cos"].includes(n.kind) && !p.useTime) {
+    const incoming = state.edges.filter((e) => e.to === nodeId).map((e) => e.from);
+
+    if ((n.kind === "sin" || n.kind === "cos") && !p.useTime) {
       const a = +p.a || 0, b = +p.b || 1, c = +p.c || 0, d = +p.d || 0;
-      const cDeg = (c * 180 / Math.PI).toFixed(3);
-      const angleSpan = (b * 360).toFixed(3);
-      const ampPx = (a * AMP).toFixed(2);
-      const offsetPx = (d * AMP).toFixed(2);
-      // 画面座標系は y が下向きなので、両項を負にして上下を合わせる
-      return `calc(-1 * ${ampPx}px * ${n.kind}(calc(var(${tVar}) * ${angleSpan}deg + ${cDeg}deg)) - ${offsetPx}px)`;
+      // 静止波形は x ∈ [-2π, +2π] (=4π 幅) を t ∈ [0,1] に対応させているので、
+      // angle(t) = b * (-2π + 4π*t) + c = -2π*b + 4π*b*t + c
+      // ⇒ 開始角(t=0) = (c*180/π - 360*b)°、走査幅 = 720*b°
+      const startDeg = (c * 180 / Math.PI - 360 * b).toFixed(3);
+      const angleSpan = (720 * b).toFixed(3);
+      const ampSigned = (-a * AMP).toFixed(2);     // 画面座標は下向き正なので符号反転
+      const offsetSigned = (-d * AMP).toFixed(2);
+      return (
+`calc(` +
+  `calc((${ampSigned}) * 1px) * ${n.kind}(calc((${angleSpan}) * 1deg * var(${tVar}) + (${startDeg}) * 1deg))` +
+  ` + calc((${offsetSigned}) * 1px)` +
+`)`);
     }
     if (n.kind === "const") {
       const v = +p.value || 0;
-      return `${(-v * AMP).toFixed(2)}px`;
+      return `calc((${(-v * AMP).toFixed(2)}) * 1px)`;
+    }
+    if (n.kind === "add") {
+      if (incoming.length === 0) return null;
+      const terms = incoming.map((id) => nodeToCssTerm(id, tVar, depth + 1));
+      if (terms.some((t) => t === null)) return null;
+      return `calc(${terms.join(" + ")})`;
+    }
+    if (n.kind === "sub") {
+      if (incoming.length === 0) return null;
+      const head = nodeToCssTerm(incoming[0], tVar, depth + 1);
+      if (head === null) return null;
+      const tail = incoming.slice(1).map((id) => nodeToCssTerm(id, tVar, depth + 1));
+      if (tail.some((t) => t === null)) return null;
+      return tail.length === 0 ? head : `calc(${head} ${tail.map((t) => `- ${t}`).join(" ")})`;
+    }
+    if (n.kind === "flip") {
+      if (incoming.length === 0) return null;
+      const inner = nodeToCssTerm(incoming[0], tVar, depth + 1);
+      if (inner === null) return null;
+      return `calc(0px - ${inner})`;
+    }
+    if (n.kind === "scale") {
+      if (incoming.length === 0) return null;
+      const inner = nodeToCssTerm(incoming[0], tVar, depth + 1);
+      if (inner === null) return null;
+      const sy = +p.sy || 1;
+      // x 方向のスケールは時間軸を歪めることになり symbolic 化困難なので、sx≠1 ならフォールバック
+      if (Math.abs((+p.sx || 1) - 1) > 1e-9) return null;
+      return `calc(${inner} * (${sy.toFixed(4)}))`;
+    }
+    if (n.kind === "shift") {
+      if (incoming.length === 0) return null;
+      // dx≠0 は t を再マップする必要があるため symbolic 化不可
+      if (Math.abs(+p.dx || 0) > 1e-9) return null;
+      const inner = nodeToCssTerm(incoming[0], tVar, depth + 1);
+      if (inner === null) return null;
+      const dy = +p.dy || 0;
+      return `calc(${inner} + calc((${(-dy * AMP).toFixed(2)}) * 1px))`;
+    }
+    if (n.kind === "mul") {
+      // 入力すべてが定数なら calc で乗算可能。一般には length × length は不可なのでフォールバック
+      if (incoming.length === 0) return null;
+      let allConst = true;
+      let prod = 1;
+      for (const id of incoming) {
+        const nn = state.nodes.find((x) => x.id === id);
+        if (!nn || nn.kind !== "const") { allConst = false; break; }
+        prod *= (+nn.params.value || 0);
+      }
+      if (!allConst) return null;
+      return `calc((${(-prod * AMP).toFixed(2)}) * 1px)`;
     }
     return null;
   }
@@ -1963,44 +2025,57 @@ function buildCssExport() {
   outputs.forEach((out, i) => {
     const ins = outputInputs(out.id);
     const cls = "out-" + (i + 1);
-    const varName = "--t-out" + (i + 1);
+    const xVar = "--x-out" + (i + 1);    // x 軸用 @property
+    const yVar = "--y-out" + (i + 1);    // y 軸用 @property
     const color = PALETTE[i % PALETTE.length];
     const labelText = `📈 ${out.name || "出力"}${outputs.length > 1 ? (i + 1) : ""}`;
     const formula = formulaOf(out.id);
 
-    // (1) 入力すべてが sin/cos/const なら、CSS の calc(sum) で記号的に表現
+    // (1) 入力すべてを記号的に表現できるなら、CSS の calc(sum) + @property + sin()/cos() で
+    //     y 用の式は yVar 起点で生成（t→y のマッピングを yVar が担う）
     let yExpr = null;
     if (ins.length > 0) {
-      const terms = ins.map((id) => inputToCssTerm(id, varName));
+      const terms = ins.map((id) => nodeToCssTerm(id, yVar));
       if (terms.every((t) => t !== null)) {
         yExpr = `calc(${terms.join(" + ")})`;
       }
     }
 
-    propertyDecls.push(
-`@property ${varName} {
+    if (yExpr) {
+      // 【記号的な @property + sin()/cos() ルート】
+      // x 軸用と y 軸用に @property を分離。両方を同期して 0→1 に補間する。
+      propertyDecls.push(
+`@property ${xVar} {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+@property ${yVar} {
   syntax: '<number>';
   inherits: false;
   initial-value: 0;
 }`);
-
-    if (yExpr) {
-      // 記号的な @property + sin()/cos() 形式
       ruleDecls.push(
 `.${cls} {
-  ${varName}: 0;
+  ${xVar}: 0;
+  ${yVar}: 0;
   position: absolute;
   left: 0; top: 50%;
   width: 0; height: 0;
   animation: ${cls}-anim ${DURATION}s linear infinite;
   transform: translate(
-    calc(var(${varName}) * ${W}px),
+    calc(var(${xVar}) * ${W}px),
     ${yExpr}
   );
 }`);
-      keyframes.push(`@keyframes ${cls}-anim { to { ${varName}: 1; } }`);
+      keyframes.push(
+`@keyframes ${cls}-anim {
+  from { ${xVar}: 0; ${yVar}: 0; }
+  to   { ${xVar}: 1; ${yVar}: 1; }
+}`);
     } else {
-      // 入力に shift/scale/diff 等が含まれる場合は y(x) をサンプリングしてキーフレームに焼き込む
+      // 【サンプリング・フォールバック】記号化できない演算（diff/integ/mul など）が含まれる場合、
+      // y(x) を実値でサンプリングしキーフレームに焼き込む。@property は使わない。
       const N = 60;
       const stops = [];
       for (let k = 0; k <= N; k++) {
@@ -2018,7 +2093,6 @@ function buildCssExport() {
       }
       ruleDecls.push(
 `.${cls} {
-  ${varName}: 0;
   position: absolute;
   left: 0; top: 50%;
   width: 0; height: 0;
@@ -2080,8 +2154,8 @@ function buildCssExport() {
       label: labelText,
       desc: ins.length === 0 ? "（入力未接続）" : `y = ${formula}`,
       tip: yExpr
-        ? "@property + CSS sin()/cos() で各成分を合算（記号的に表現）"
-        : "サンプリングしたキーフレームでアニメ化（複雑な合成のため）",
+        ? "@property を x 軸 / y 軸の 2 つに分離して登録し、CSS の sin()/cos() で y を合成（位相は静止波形と一致）"
+        : "(@property 不可) この合成は記号化できないので、y(x) をサンプリングしてキーフレームに焼き込みます",
     });
   });
 
@@ -2094,10 +2168,10 @@ function buildCssExport() {
     const color = PALETTE[i % PALETTE.length];
     const cDeg = (c * 180 / Math.PI).toFixed(2);
     const angleSpan = (b * 360).toFixed(2);
-    const ampPx = (a * AMP).toFixed(2);
-    const offsetPx = (d * AMP).toFixed(2);
     const fnIcon = n.kind === "sin" ? "🌸" : "🍀";
     const labelText = `${fnIcon} ${n.kind}${i + 1}`;
+    const ampSigned = (-a * AMP).toFixed(2);
+    const offsetSigned = (-d * AMP).toFixed(2);
     propertyDecls.push(`@property ${varName} {\n  syntax: '<number>';\n  inherits: false;\n  initial-value: 0;\n}`);
     ruleDecls.push(
 `.${cls} {
@@ -2108,12 +2182,15 @@ function buildCssExport() {
   animation: ${cls}-anim ${DURATION}s linear infinite;
   transform: translate(
     calc(var(${varName}) * ${W}px),
-    calc(-1 * ${ampPx}px * ${n.kind}(calc(var(${varName}) * ${angleSpan}deg + ${cDeg}deg)) - ${offsetPx}px)
+    calc(
+      calc((${ampSigned}) * 1px) * ${n.kind}(calc((${angleSpan}) * 1deg * var(${varName}) + (${cDeg}) * 1deg))
+      + calc((${offsetSigned}) * 1px)
+    )
   );
 }
 .${cls} > .dot { position: absolute; left: -8px; top: -8px; width: 16px; height: 16px; border-radius: 50%; background: ${color}; box-shadow: 0 0 10px ${color}cc; }
 .${cls} > .lbl { position: absolute; left: 12px; top: -22px; white-space: nowrap; font-size: 11px; color: ${color}; background: #fff; border: 1px solid ${color}; border-radius: 6px; padding: 1px 6px; font-weight: 600; }`);
-    keyframes.push(`@keyframes ${cls}-anim { to { ${varName}: 1; } }`);
+    keyframes.push(`@keyframes ${cls}-anim { from { ${varName}: 0; } to { ${varName}: 1; } }`);
     htmlNodes.push(`  <div class="${cls}"><span class="dot"></span><span class="lbl">${labelText}</span></div>`);
     const N = 80;
     const pts = [];
