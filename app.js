@@ -147,11 +147,14 @@ let practiceState = null;
 init();
 
 function init() {
-  if (!state.nodes || state.nodes.length === 0) loadSample("basic");
+  // 共有URL（#d=...）が付いていれば最優先で復元
+  const fromHash = tryLoadFromHash();
+  if (!fromHash && (!state.nodes || state.nodes.length === 0)) loadSample("basic");
   applyTheme(state.theme || "pastel");
   applyView();
   bindUi();
   renderAll();
+  if (fromHash) save();
   window.addEventListener("resize", () => { renderEdges(); renderGroups(); });
 }
 
@@ -201,6 +204,7 @@ function bindUi() {
 
   // ファイル
   document.getElementById("btn-export").addEventListener("click", exportJson);
+  document.getElementById("btn-share").addEventListener("click", shareUrl);
   document.getElementById("file-import").addEventListener("change", importJson);
   document.getElementById("btn-clear").addEventListener("click", clearAll);
 
@@ -1205,6 +1209,32 @@ function drawOutput(node) {
       }
       ctx.stroke();
     });
+    // 再生中：sweeping playhead を描き、各曲線の現在値をドットで強調（単位円⇔波形の連動を可視化）
+    if (animState.playing && ins.length > 0) {
+      const period = xMax - xMin;
+      const xCur = ((animState.t - xMin) % period + period) % period + xMin;
+      const pxCur = ((xCur - xMin) / period) * w;
+      ctx.strokeStyle = "#ff8fb5";
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(pxCur, 0); ctx.lineTo(pxCur, h); ctx.stroke();
+      ctx.setLineDash([]);
+      ins.forEach((inputId, idx) => {
+        let yv = evaluate(inputId, xCur, t);
+        if (!isFinite(yv)) return;
+        yv = Math.max(-h, Math.min(h, yv));
+        const py = h / 2 - yv * yScale;
+        const color = ins.length === 1 ? edgeCol : OVERLAY_COLORS[idx % OVERLAY_COLORS.length];
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.arc(pxCur, py, 4.5, 0, 2 * Math.PI); ctx.fill();
+        // y値ガイド（左端まで点線）
+        ctx.strokeStyle = color;
+        ctx.setLineDash([2, 4]);
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(pxCur, py); ctx.stroke();
+        ctx.globalAlpha = 1.0;
+        ctx.setLineDash([]);
+      });
+    }
   } else if (mode === "lissajous") {
     // 入力2つを (x(t), y(t)) として描く
     const ins = outputInputs(node.id);
@@ -1777,6 +1807,53 @@ function exportJson() {
   const a = document.createElement("a");
   a.href = url; a.download = "graph.sankakukansu.json"; a.click();
   URL.revokeObjectURL(url);
+}
+
+// 共有URL（ハッシュに base64 で state を埋め込む）
+function encodeShareState() {
+  const minimal = {
+    nodes: state.nodes, edges: state.edges,
+    groups: state.groups, notes: state.notes,
+    seq: state.seq, theme: state.theme, view: state.view,
+  };
+  const json = JSON.stringify(minimal);
+  // UTF-8 → base64（unicode 対応）
+  const b64 = btoa(unescape(encodeURIComponent(json)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return b64;
+}
+function decodeShareState(b64) {
+  try {
+    const norm = b64.replace(/-/g, "+").replace(/_/g, "/");
+    const pad  = norm.length % 4 ? "=".repeat(4 - (norm.length % 4)) : "";
+    const json = decodeURIComponent(escape(atob(norm + pad)));
+    return JSON.parse(json);
+  } catch (_) { return null; }
+}
+function shareUrl() {
+  const b64 = encodeShareState();
+  const url = location.origin + location.pathname + "#d=" + b64;
+  const msg = document.getElementById("formula-msg");
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(() => {
+      if (msg) msg.textContent = "🔗 共有URLをコピーしました（" + url.length + "文字）";
+    }, () => {
+      prompt("このURLをコピーしてください", url);
+    });
+  } else {
+    prompt("このURLをコピーしてください", url);
+  }
+  // URL自体もハッシュに反映（リロードで再現できるよう）
+  history.replaceState(null, "", "#d=" + b64);
+}
+function tryLoadFromHash() {
+  const h = location.hash || "";
+  const m = h.match(/^#d=([A-Za-z0-9_\-]+)/);
+  if (!m) return false;
+  const data = decodeShareState(m[1]);
+  if (!data || !data.nodes) return false;
+  state = migrate(data);
+  return true;
 }
 function importJson(e) {
   const file = e.target.files[0];
@@ -2442,15 +2519,30 @@ function checkPractice() {
     result.className = "muted practice-result-wrong";
     return;
   }
-  const N = 80;
+  const ins = outputInputs(out.id);
+  if (ins.length === 0) {
+    result.textContent = "📈 出力ノードに関数を繋いでね";
+    result.className = "muted practice-result-wrong";
+    return;
+  }
+  const N = 200;
   const xMin = -2 * Math.PI, xMax = 2 * Math.PI;
-  let sumSq = 0, valid = 0;
+  let sumSq = 0, sumT2 = 0, sumT = 0, valid = 0;
+  // ユーザの出力 = 入力1本ならその値、複数あれば合計（出力が和を表示する仕様に合わせる）
   for (let i = 0; i <= N; i++) {
     const x = xMin + (i / N) * (xMax - xMin);
     const yT = practiceState.problem.fn(x);
-    const yU = evaluate(out.id, x, 0);
-    if (!isFinite(yT) || !isFinite(yU) || Math.abs(yU) > 1e3) continue;
+    let yU = 0;
+    let bad = false;
+    for (const id of ins) {
+      const v = evaluate(id, x, 0);
+      if (!isFinite(v) || Math.abs(v) > 1e3) { bad = true; break; }
+      yU += v;
+    }
+    if (bad || !isFinite(yT)) continue;
     sumSq += (yU - yT) ** 2;
+    sumT2 += yT * yT;
+    sumT  += yT;
     valid++;
   }
   if (valid < N * 0.4) {
@@ -2459,17 +2551,23 @@ function checkPractice() {
     return;
   }
   const rmse = Math.sqrt(sumSq / valid);
-  if (rmse < 0.15) {
-    result.innerHTML = `🎉 <span class="practice-result-correct">正解！</span> (誤差 ${rmse.toFixed(3)})`;
+  // 相対誤差: 目標波形の RMS で正規化（定数や小振幅の問題は分母にフロアを設ける）
+  const rmsT = Math.sqrt(sumT2 / valid);
+  const meanT = sumT / valid;
+  const scale = Math.max(rmsT, Math.abs(meanT), 0.5);
+  const nrmse = rmse / scale;
+
+  if (nrmse < 0.10) {
+    result.innerHTML = `🎉 <span class="practice-result-correct">正解！</span> <span class="muted">(相対誤差 ${(nrmse*100).toFixed(1)}%)</span>`;
     celebrate();
     setTimeout(() => {
       if (practiceState) { practiceState.index++; loadPracticeProblem(); }
     }, 1800);
-  } else if (rmse < 0.5) {
-    result.innerHTML = `<span class="practice-result-wrong">惜しい！</span> もう少しで正解 (誤差 ${rmse.toFixed(2)})`;
+  } else if (nrmse < 0.25) {
+    result.innerHTML = `<span class="practice-result-wrong">惜しい！</span> もう少しで正解 <span class="muted">(相対誤差 ${(nrmse*100).toFixed(0)}%)</span>`;
     result.className = "muted";
   } else {
-    result.innerHTML = `<span class="practice-result-wrong">違うかな…</span> グラフをよく見てみて (誤差 ${rmse.toFixed(2)})`;
+    result.innerHTML = `<span class="practice-result-wrong">違うかな…</span> グラフをよく見てみて <span class="muted">(相対誤差 ${(nrmse*100).toFixed(0)}%)</span>`;
     result.className = "muted";
   }
 }
