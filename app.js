@@ -201,6 +201,13 @@ function bindUi() {
   document.getElementById("btn-stop").addEventListener("click", stopAnimation);
   document.getElementById("btn-sound").addEventListener("click", playSound);
   document.getElementById("btn-latex").addEventListener("click", copyLatex);
+  document.getElementById("btn-css").addEventListener("click", openCssExport);
+  document.getElementById("btn-css-close").addEventListener("click", closeCssExport);
+  document.getElementById("btn-css-copy").addEventListener("click", copyCssExport);
+  document.getElementById("btn-css-download").addEventListener("click", downloadCssExport);
+  document.getElementById("css-modal").addEventListener("click", (e) => {
+    if (e.target.id === "css-modal") closeCssExport();
+  });
 
   // ファイル
   document.getElementById("btn-export").addEventListener("click", exportJson);
@@ -1846,6 +1853,416 @@ function shareUrl() {
   // URL自体もハッシュに反映（リロードで再現できるよう）
   history.replaceState(null, "", "#d=" + b64);
 }
+// =========================================================================
+// CSS 書き出し（@property + CSS sin()/cos() で波形と円運動を再現）
+// =========================================================================
+function buildCssExport() {
+  const outputs = state.nodes.filter((n) => n.kind === "output" && (!n.params || (n.params.mode || "graph") === "graph"));
+  const circles = state.nodes.filter((n) => n.kind === "unitcircle");
+  const PALETTE = ["#ff5d8a", "#39a883", "#e89826", "#3d72ff", "#a85cd6", "#c9a200"];
+  const DURATION = 4;
+  const W = 480, H = 240, AMP = 36;
+  const orbitRadius = (i) => 50 + i * 18;
+
+  // 出力もユニットサークルも無いときは、ある sin/cos を 1 本ずつ書き出す（旧挙動）
+  const fallbackWaves = (outputs.length === 0)
+    ? state.nodes.filter((n) => ["sin", "cos"].includes(n.kind))
+    : [];
+
+  if (outputs.length === 0 && circles.length === 0 && fallbackWaves.length === 0) {
+    return {
+      html: "",
+      note: "sin / cos / 単位円 / 出力 ノードを置いてからもう一度試してください",
+      legend: [],
+    };
+  }
+
+  const propertyDecls = [];
+  const ruleDecls = [];
+  const keyframes = [];
+  const htmlNodes = [];
+  const legend = [];
+
+  const svgPaths = [];
+  const svgRings = [];
+
+  // ---- 入力ノードを CSS calc 式に変換（sin/cos/const のみ。null = 不可） ----
+  function inputToCssTerm(nodeId, tVar) {
+    const n = state.nodes.find((x) => x.id === nodeId);
+    if (!n) return null;
+    const p = n.params || {};
+    if (["sin", "cos"].includes(n.kind) && !p.useTime) {
+      const a = +p.a || 0, b = +p.b || 1, c = +p.c || 0, d = +p.d || 0;
+      const cDeg = (c * 180 / Math.PI).toFixed(3);
+      const angleSpan = (b * 360).toFixed(3);
+      const ampPx = (a * AMP).toFixed(2);
+      const offsetPx = (d * AMP).toFixed(2);
+      // 画面座標系は y が下向きなので、両項を負にして上下を合わせる
+      return `calc(-1 * ${ampPx}px * ${n.kind}(calc(var(${tVar}) * ${angleSpan}deg + ${cDeg}deg)) - ${offsetPx}px)`;
+    }
+    if (n.kind === "const") {
+      const v = +p.value || 0;
+      return `${(-v * AMP).toFixed(2)}px`;
+    }
+    return null;
+  }
+
+  // ---- 出力ノードごとに 1 本の波形ドットを生成 ----
+  outputs.forEach((out, i) => {
+    const ins = outputInputs(out.id);
+    const cls = "out-" + (i + 1);
+    const varName = "--t-out" + (i + 1);
+    const color = PALETTE[i % PALETTE.length];
+    const labelText = `📈 ${out.name || "出力"}${outputs.length > 1 ? (i + 1) : ""}`;
+    const formula = formulaOf(out.id);
+
+    // (1) 入力すべてが sin/cos/const なら、CSS の calc(sum) で記号的に表現
+    let yExpr = null;
+    if (ins.length > 0) {
+      const terms = ins.map((id) => inputToCssTerm(id, varName));
+      if (terms.every((t) => t !== null)) {
+        yExpr = `calc(${terms.join(" + ")})`;
+      }
+    }
+
+    propertyDecls.push(
+`@property ${varName} {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}`);
+
+    if (yExpr) {
+      // 記号的な @property + sin()/cos() 形式
+      ruleDecls.push(
+`.${cls} {
+  ${varName}: 0;
+  position: absolute;
+  left: 0; top: 50%;
+  width: 0; height: 0;
+  animation: ${cls}-anim ${DURATION}s linear infinite;
+  transform: translate(
+    calc(var(${varName}) * ${W}px),
+    ${yExpr}
+  );
+}`);
+      keyframes.push(`@keyframes ${cls}-anim { to { ${varName}: 1; } }`);
+    } else {
+      // 入力に shift/scale/diff 等が含まれる場合は y(x) をサンプリングしてキーフレームに焼き込む
+      const N = 60;
+      const stops = [];
+      for (let k = 0; k <= N; k++) {
+        const t = k / N;
+        const x = -2 * Math.PI + t * 4 * Math.PI;
+        let y = 0;
+        for (const id of ins) {
+          const v = evaluate(id, x, 0);
+          if (isFinite(v)) y += v;
+        }
+        const px = (t * W).toFixed(1);
+        const py = (-y * AMP).toFixed(1);
+        const pct = (t * 100).toFixed(1);
+        stops.push(`  ${pct}% { transform: translate(${px}px, ${py}px); }`);
+      }
+      ruleDecls.push(
+`.${cls} {
+  ${varName}: 0;
+  position: absolute;
+  left: 0; top: 50%;
+  width: 0; height: 0;
+  animation: ${cls}-anim ${DURATION}s linear infinite;
+  transform: translate(0px, 0px);
+}`);
+      keyframes.push(`@keyframes ${cls}-anim {\n${stops.join("\n")}\n}`);
+    }
+
+    // ドット本体・ラベル・静的曲線（共通スタイル）
+    ruleDecls.push(
+`.${cls} > .dot {
+  position: absolute;
+  left: -8px; top: -8px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: ${color};
+  box-shadow: 0 0 10px ${color}cc;
+}
+.${cls} > .lbl {
+  position: absolute;
+  left: 12px; top: -22px;
+  white-space: nowrap;
+  font-size: 11px;
+  color: ${color};
+  background: #fff;
+  border: 1px solid ${color};
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-weight: 600;
+}`);
+    htmlNodes.push(
+`  <div class="${cls}"><span class="dot"></span><span class="lbl">${labelText}</span></div>`);
+
+    // 静的曲線：実際の y(x) をサンプリングして SVG パスに（評価結果と一致）
+    const N2 = 200;
+    const pts = [];
+    let started = false;
+    for (let k = 0; k <= N2; k++) {
+      const t = k / N2;
+      const x = -2 * Math.PI + t * 4 * Math.PI;
+      let y = 0;
+      let bad = false;
+      for (const id of ins) {
+        const v = evaluate(id, x, 0);
+        if (!isFinite(v)) { bad = true; break; }
+        y += v;
+      }
+      if (bad) { started = false; continue; }
+      const px = (t * W).toFixed(2);
+      const py = (H / 2 - y * AMP).toFixed(2);
+      pts.push(`${started ? "L" : "M"}${px},${py}`);
+      started = true;
+    }
+    svgPaths.push(`<path d="${pts.join(" ")}" stroke="${color}" stroke-width="1.5" fill="none" stroke-dasharray="3 3" opacity="0.5" />`);
+
+    legend.push({
+      color,
+      label: labelText,
+      desc: ins.length === 0 ? "（入力未接続）" : `y = ${formula}`,
+      tip: yExpr
+        ? "@property + CSS sin()/cos() で各成分を合算（記号的に表現）"
+        : "サンプリングしたキーフレームでアニメ化（複雑な合成のため）",
+    });
+  });
+
+  // ---- フォールバック：出力ノードが無いときは sin/cos 単独の波形を従来どおり 1 本ずつ ----
+  fallbackWaves.forEach((n, i) => {
+    const p = n.params || {};
+    const a = +p.a || 1, b = +p.b || 1, c = +p.c || 0, d = +p.d || 0;
+    const cls = "wave-" + (i + 1);
+    const varName = "--t-w" + (i + 1);
+    const color = PALETTE[i % PALETTE.length];
+    const cDeg = (c * 180 / Math.PI).toFixed(2);
+    const angleSpan = (b * 360).toFixed(2);
+    const ampPx = (a * AMP).toFixed(2);
+    const offsetPx = (d * AMP).toFixed(2);
+    const fnIcon = n.kind === "sin" ? "🌸" : "🍀";
+    const labelText = `${fnIcon} ${n.kind}${i + 1}`;
+    propertyDecls.push(`@property ${varName} {\n  syntax: '<number>';\n  inherits: false;\n  initial-value: 0;\n}`);
+    ruleDecls.push(
+`.${cls} {
+  ${varName}: 0;
+  position: absolute;
+  left: 0; top: 50%;
+  width: 0; height: 0;
+  animation: ${cls}-anim ${DURATION}s linear infinite;
+  transform: translate(
+    calc(var(${varName}) * ${W}px),
+    calc(-1 * ${ampPx}px * ${n.kind}(calc(var(${varName}) * ${angleSpan}deg + ${cDeg}deg)) - ${offsetPx}px)
+  );
+}
+.${cls} > .dot { position: absolute; left: -8px; top: -8px; width: 16px; height: 16px; border-radius: 50%; background: ${color}; box-shadow: 0 0 10px ${color}cc; }
+.${cls} > .lbl { position: absolute; left: 12px; top: -22px; white-space: nowrap; font-size: 11px; color: ${color}; background: #fff; border: 1px solid ${color}; border-radius: 6px; padding: 1px 6px; font-weight: 600; }`);
+    keyframes.push(`@keyframes ${cls}-anim { to { ${varName}: 1; } }`);
+    htmlNodes.push(`  <div class="${cls}"><span class="dot"></span><span class="lbl">${labelText}</span></div>`);
+    const N = 80;
+    const pts = [];
+    for (let k = 0; k <= N; k++) {
+      const t = k / N;
+      const angle = b * t * 2 * Math.PI + c;
+      const yval = a * (n.kind === "sin" ? Math.sin(angle) : Math.cos(angle)) + d;
+      pts.push(`${k === 0 ? "M" : "L"}${(t * W).toFixed(2)},${(H / 2 - yval * AMP).toFixed(2)}`);
+    }
+    svgPaths.push(`<path d="${pts.join(" ")}" stroke="${color}" stroke-width="1.5" fill="none" stroke-dasharray="3 3" opacity="0.45" />`);
+    legend.push({
+      color, label: labelText,
+      desc: `y = ${a}·${n.kind}(${b}x${c >= 0 ? "+" : ""}${c.toFixed(2)})${d >= 0 ? "+" : ""}${d.toFixed(2)}`,
+      tip: "出力ノードが無いので、この sin/cos 単独の波を表示しています",
+    });
+  });
+
+  circles.forEach((n, i) => {
+    const p = n.params || {};
+    const startDeg = (((+p.angle || 0) * 180 / Math.PI) || 0).toFixed(2);
+    const cls = "orbit-" + (i + 1);
+    const varName = "--theta-" + (i + 1);
+    const color = PALETTE[(waves.length + i) % PALETTE.length];
+    const R = orbitRadius(i);
+    const labelText = `⭕ θ${i + 1}`;
+
+    propertyDecls.push(
+`@property ${varName} {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: ${startDeg}deg;
+}`);
+    ruleDecls.push(
+`.${cls} {
+  ${varName}: ${startDeg}deg;
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 0; height: 0;
+  animation: ${cls}-anim ${DURATION}s linear infinite;
+  transform: translate(
+    calc(cos(var(${varName})) * ${R}px),
+    calc(sin(var(${varName})) * -${R}px)
+  );
+}
+.${cls} > .dot {
+  position: absolute;
+  left: -8px; top: -8px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: ${color};
+  box-shadow: 0 0 10px ${color}cc;
+}
+.${cls} > .lbl {
+  position: absolute;
+  left: 12px; top: -22px;
+  white-space: nowrap;
+  font-size: 11px;
+  color: ${color};
+  background: #fff;
+  border: 1px solid ${color};
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-weight: 600;
+}`);
+    keyframes.push(
+`@keyframes ${cls}-anim {
+  to { ${varName}: ${(parseFloat(startDeg) + 360).toFixed(2)}deg; }
+}`);
+    htmlNodes.push(
+`  <div class="${cls}"><span class="dot"></span><span class="lbl">${labelText}</span></div>`);
+
+    // SVG: 各円の軌道リング（ステージ中央起点）
+    const cx = W / 2, cy = H / 2;
+    svgRings.push(
+`<circle cx="${cx}" cy="${cy}" r="${R}" stroke="${color}" stroke-width="1" fill="none" stroke-dasharray="4 4" opacity="0.55" />`);
+
+    legend.push({
+      color,
+      label: labelText,
+      desc: `半径 ${R}px の円周を一周（θ: ${startDeg}° → ${(parseFloat(startDeg) + 360).toFixed(0)}°）`,
+      tip: "中心から見た角度 θ が 0 → 360° に補間。位置は (cos θ·R, sin θ·R)",
+    });
+  });
+
+  // 中心点と X 軸 を SVG に描画
+  const stageBackdrop =
+`<svg class="bg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+  <line x1="0" y1="${H / 2}" x2="${W}" y2="${H / 2}" stroke="#f1c8d8" stroke-width="1" />
+  ${circles.length > 0 ? `<circle cx="${W/2}" cy="${H/2}" r="3" fill="#f1c8d8" />` : ""}
+  ${svgRings.join("\n  ")}
+  ${svgPaths.join("\n  ")}
+</svg>`;
+
+  const stageStyle =
+`body {
+  margin: 0;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  background: #fdf6fa;
+  font-family: -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif;
+}
+.stage {
+  position: relative;
+  width: ${W}px;
+  height: ${H}px;
+  border: 1px solid #f1c8d8;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(255, 143, 181, 0.2);
+  overflow: hidden;
+}
+.stage > svg.bg {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+}`;
+
+  const css = [
+    "/* ===== @property registrations ===== */",
+    propertyDecls.join("\n\n"),
+    "",
+    "/* ===== Stage ===== */",
+    stageStyle,
+    "",
+    "/* ===== Animated elements ===== */",
+    ruleDecls.join("\n\n"),
+    "",
+    "/* ===== Keyframes ===== */",
+    keyframes.join("\n\n"),
+  ].join("\n");
+
+  const html =
+`<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>三角関数アニメーション (CSS @property)</title>
+<style>
+${css}
+</style>
+</head>
+<body>
+<div class="stage">
+  ${stageBackdrop}
+${htmlNodes.join("\n")}
+</div>
+<!-- 注: @property と sin()/cos() は Chrome 111+ / Safari 15.4+ / Firefox 128+ -->
+</body>
+</html>
+`;
+  return { html, note: "", legend };
+}
+
+function openCssExport() {
+  const { html, note, legend } = buildCssExport();
+  const ta = document.getElementById("css-code");
+  const iframe = document.getElementById("css-preview");
+  const legendEl = document.getElementById("css-legend");
+  if (note) {
+    ta.value = "";
+    iframe.srcdoc = `<div style="font-family:sans-serif;padding:12px;color:#888">${note}</div>`;
+    legendEl.innerHTML = "";
+  } else {
+    ta.value = html;
+    iframe.srcdoc = html;
+    legendEl.innerHTML = (legend || []).map((it) =>
+      `<span class="item" title="${escapeAttr(it.tip || "")}">
+        <span class="swatch" style="background:${it.color}"></span>
+        <b>${it.label}</b>
+        <span class="muted">${escapeAttr(it.desc || "")}</span>
+      </span>`
+    ).join("");
+  }
+  document.getElementById("css-modal").hidden = false;
+}
+function closeCssExport() {
+  document.getElementById("css-modal").hidden = true;
+}
+function copyCssExport() {
+  const ta = document.getElementById("css-code");
+  if (!ta.value) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(ta.value).then(() => {
+      const msg = document.getElementById("formula-msg");
+      if (msg) msg.textContent = "🎨 CSS をコピーしました";
+    }, () => { ta.select(); document.execCommand && document.execCommand("copy"); });
+  } else {
+    ta.select(); document.execCommand && document.execCommand("copy");
+  }
+}
+function downloadCssExport() {
+  const ta = document.getElementById("css-code");
+  if (!ta.value) return;
+  const blob = new Blob([ta.value], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "trig-animation.html"; a.click();
+  URL.revokeObjectURL(url);
+}
+
 function tryLoadFromHash() {
   const h = location.hash || "";
   const m = h.match(/^#d=([A-Za-z0-9_\-]+)/);

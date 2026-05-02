@@ -151,6 +151,7 @@
           <button class="chip" id="btn-stop"  >■ 停止</button>
           <button class="chip" id="btn-sound" >🔊 音で聴く</button>
           <button class="chip" id="btn-latex" >🧮 LaTeX</button>
+          <button class="chip" id="btn-css"   >🎨 CSS書き出し</button>
         </div>
       </details>
 
@@ -202,12 +203,52 @@
 
   <!-- 使われ方モーダル（起動時表示） -->
   <div id="usage-modal" class="modal" hidden>
-    <div class="modal-card">
+    <div class="modal-card usage-modal-card">
       <h2>🌍 三角関数はどこで使われてる？</h2>
       <p id="usage-text" class="tip-text usage-text"></p>
-      <div class="modal-actions">
+      <div class="modal-actions usage-modal-actions">
         <button id="btn-usage-next" class="chip">▶ 次の使われ方</button>
         <button id="usage-close" class="chip">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CSS 書き出しモーダル -->
+  <div id="css-modal" class="modal" hidden>
+    <div class="modal-card css-modal-card">
+      <h2 style="margin:0 0 8px;text-align:left">🎨 CSS 書き出し</h2>
+      <p class="muted" style="margin:0 0 8px;text-align:left">
+        <code>@property</code> + CSS の <code>sin()</code>/<code>cos()</code> で波形と円運動を再現します。
+        プレビューを確認し、コードをコピーして HTML ファイルに貼り付けてください。
+      </p>
+      <div class="css-preview-wrap">
+        <iframe id="css-preview" class="css-preview" title="CSS preview"></iframe>
+      </div>
+      <div id="css-legend" class="css-legend"></div>
+      <details class="css-howto">
+        <summary>📖 これは何？（仕組みの解説）</summary>
+        <div class="css-howto-body">
+          <p><b>@property</b> は CSS のカスタムプロパティに「型」を付けて登録する仕組み。
+            通常 <code>--x: 0</code> のような変数は文字列扱いなので CSS アニメーションで
+            滑らかに補間できませんが、<code>@property</code> で <code>&lt;number&gt;</code> や
+            <code>&lt;angle&gt;</code> として登録すると<b>数値として補間できる</b>ようになります。</p>
+          <p>このアプリが書き出すコードは：</p>
+          <ul>
+            <li><b>波形ドット</b>：<code>--t</code> を 0→1 に補間し、x 座標は <code>--t</code> に比例、
+              y 座標は <code>sin(--t × 360deg)</code> に比例。CSS の <code>sin()</code> 関数が直接呼べるので、
+              JavaScript なしで本物の正弦波運動になります</li>
+            <li><b>円運動ドット</b>：<code>--theta</code> を 0deg→360deg に補間し、
+              位置を <code>(cos(--theta)·R, sin(--theta)·R)</code> に置く。
+              これも CSS の <code>cos()</code> / <code>sin()</code> が計算してくれます</li>
+          </ul>
+          <p class="muted">対応ブラウザ：Chrome 111+ / Safari 15.4+ / Firefox 128+</p>
+        </div>
+      </details>
+      <textarea id="css-code" class="css-code" spellcheck="false" readonly></textarea>
+      <div class="modal-actions" style="margin-top:12px;justify-content:flex-end">
+        <button id="btn-css-copy"     class="chip">📋 コピー</button>
+        <button id="btn-css-download" class="chip">💾 .htmlで保存</button>
+        <button id="btn-css-close"    class="chip">閉じる</button>
       </div>
     </div>
   </div>
