@@ -21,7 +21,7 @@
         <option value="dark">🌙 ダーク</option>
         <option value="neko">🐱 ねこ</option>
       </select>
-      <button id="btn-learn"  class="btn btn-ghost" title="学習モード">📘 学習</button>
+      <button id="btn-learn"  class="btn btn-ghost" title="解説モード">📘 解説</button>
       <button id="btn-quiz"   class="btn btn-ghost" title="クイズモード">🎲 クイズ</button>
       <button id="btn-practice" class="btn btn-ghost" title="練習モード">🎯 練習</button>
       <button id="btn-add-node" class="btn btn-pink">＋ ノード</button>
@@ -196,6 +196,18 @@
     </div>
     <div class="popup-row">
       <button id="edge-delete">🗑 削除</button>
+    </div>
+  </div>
+
+  <!-- 使われ方モーダル（起動時表示） -->
+  <div id="usage-modal" class="modal" hidden>
+    <div class="modal-card">
+      <h2>🌍 三角関数はどこで使われてる？</h2>
+      <p id="usage-text" class="tip-text usage-text"></p>
+      <div class="modal-actions">
+        <button id="btn-usage-next" class="chip">▶ 次の使われ方</button>
+        <button id="usage-close" class="chip">閉じる</button>
+      </div>
     </div>
   </div>
 

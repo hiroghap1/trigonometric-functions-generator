@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:amix-design.com)"
+      "WebFetch(domain:amix-design.com)",
+      "Bash(node *)"
     ]
   }
 }

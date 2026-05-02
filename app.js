@@ -91,6 +91,36 @@ const TIPS = [
 ];
 let tipIndex = 0;
 
+// -------- 三角関数の使われ方 (init より前に必要) --------
+const USAGES = [
+  "🎵 音楽 — あなたが聞いている音は、実は無数の sin 波の重ね合わせ。ピアノの音も人の声もぜんぶ分解すると sin/cos でできてる🎼 サンプル「フーリエ」を試してみて！",
+  "📻 ラジオ・Wi-Fi — 電波は cos(2π·f·t) という巨大な sin 波。AM変調は ✖️積、FM変調は位相を揺らす。今このページが届くのも三角関数のおかげ",
+  "🎮 ゲームのキャラ回転 — マリオが向きを変える式は x' = x·cosθ − y·sinθ, y' = x·sinθ + y·cosθ。1秒に60回この計算が走ってる",
+  "🛰 GPS — スマホの位置情報は4つの衛星との距離を「三角測量」で解いて出している。三角関数なしでは Google Maps は動かない",
+  "🏥 MRI・心電図 — 体内の磁気変化や心拍を超高速フーリエ変換で画像化・解析。三角関数は命を救う数学",
+  "🌊 波・地震・津波 — 海の波も地震の揺れも光も、自然界のあらゆる波は sin 波の重ね合わせ。津波予測も地震波解析も三角関数あってこそ",
+  "🎙 Siri・音声認識 — 「Hey Siri」と話す声を1秒に何百回もフーリエ変換して認識している。あなたの声を理解するのも sin/cos",
+  "⚡ コンセントの電気 — 家庭のコンセントは 50/60Hz の正弦波交流。1秒に50回プラスマイナスが入れ替わる、まさに sin 波そのもの",
+  "🤖 ロボットの関節 — アシモやペッパーが手を動かすとき、腕の先の位置から関節角度を逆算するのに arcsin/arccos（逆運動学）",
+  "🌌 宇宙開発 — はやぶさの軌道計算、火星探査機の着陸、ブラックホール撮影。宇宙開発の計算は三角関数なしでは始まらない🚀",
+  "🌈 虹のしくみ — 光が水滴の中で屈折・反射する角度から虹ができる。光は波長ごとに sin 波として干渉している",
+  "🏗 スカイツリーの揺れ対策 — TMD（同調質量ダンパー）が地震の揺れと逆位相の sin 波を発生させて打ち消す。超高層建築は sin で守られている",
+  "🎯 ボールが一番遠く飛ぶ角度 — 45°が最強なのは、水平距離 ∝ sin(2θ) が θ=45° で最大になるから。砲丸投げの角度にも理由がある",
+  "🎢 ジェットコースター — ループや起伏の「曲率」は微分と三角関数で設計。安全に楽しめる裏には sin/cos の計算",
+  "🌡 気温の季節変化 — 東京の年間気温データを描くと見事な sin 波。気象予報の長期トレンドもフーリエ分解で抽出している",
+  "🧬 体内リズム — 心拍・呼吸・睡眠サイクル、生体リズムはぜんぶ周期信号。医学では三角関数を使ってモデル化される",
+  "📷 カメラ — 魚眼レンズの歪み補正、画像の回転、iPhone の手ブレ補正、ぜんぶ sin/cos が裏で動いている",
+  "🎨 アニメの動き — キャラが滑らかに振り向くイージングは cos 曲線。ピクサーもジブリも、なめらかな動きの裏には数式",
+  "💡 ホログラム・レーザー — 光の干渉や回折は sin 波の重ね合わせそのもの。3Dホログラムも干渉現象を使っている",
+  "🌍 球面三角法 — 地球は丸いので、東京〜ロサンゼルス間の距離は球面三角法で計算する。航空機の最短ルートも",
+  "🎼 楽器の音色 — 同じドでもバイオリンとピアノが違って聞こえるのは、混じる倍音 (整数倍の sin 波) の比率が違うから🎻",
+  "🚗 エンジン — クランクの回転をピストンの上下運動に変えるしくみ。ピストン位置 ≈ r·cos(ωt) で、まさに cos 波",
+  "🌀 VR・ジャイロ — VR ゴーグルが頭の動きを追従できるのは、加速度センサとジャイロのデータから sin/cos で姿勢角を復元しているから",
+  "🎚 シンセサイザ — 電子音楽のシンセは sin / 三角 / ノコギリ / 矩形波の組み合わせ。このアプリでやってる波形合成と同じ仕組み🎹",
+  "💖 心電図の解析 — 心臓の電気信号を周波数別に分解（フーリエ）して、不整脈や心筋梗塞のサインを早期発見する",
+];
+let usageIndex = 0;
+
 // -------- 練習モード問題セット --------
 const PRACTICE_PROBLEMS = [
   { formula: "sin(x)",                fn: (x) => Math.sin(x),                                hint: "🌸 sin ノードをそのまま 📈 出力に繋ぐだけ" },
@@ -196,6 +226,19 @@ function bindUi() {
   // Tips
   document.getElementById("btn-tip-next").addEventListener("click", showNextTip);
   showNextTip();
+  document.getElementById("btn-usage-next").addEventListener("click", showNextUsage);
+  showNextUsage();
+  // 起動時に使われ方モーダルを表示
+  const usageModal = document.getElementById("usage-modal");
+  if (usageModal) {
+    usageModal.hidden = false;
+    document.getElementById("usage-close").addEventListener("click", () => {
+      usageModal.hidden = true;
+    });
+    usageModal.addEventListener("click", (e) => {
+      if (e.target === usageModal) usageModal.hidden = true;
+    });
+  }
 
   document.addEventListener("click", (e) => {
     if (!edgePopup.contains(e.target) && !e.target.classList.contains("edge-path")) {
@@ -265,6 +308,19 @@ function toggleLearnMode() {
   state.learnMode = !state.learnMode;
   const btn = document.getElementById("btn-learn");
   btn.style.background = state.learnMode ? "var(--mint)" : "";
+  btn.textContent = state.learnMode ? "📘 解説 ON" : "📘 解説";
+  // ON にしたときだけ使い方をキャンバス中央にトーストで表示
+  if (state.learnMode) {
+    const tip = document.getElementById("hint-tip");
+    if (tip) {
+      const r = canvasWrap.getBoundingClientRect();
+      tip.textContent = "解説モード ON：ノードにマウスを乗せると説明が出るよ";
+      tip.style.left = (r.width / 2 - 140) + "px";
+      tip.style.top  = "16px";
+      tip.hidden = false;
+      setTimeout(() => { if (!state.learnMode) return; tip.hidden = true; }, 2200);
+    }
+  }
   save();
 }
 
@@ -2317,6 +2373,12 @@ function showNextTip() {
   if (!el) return;
   el.textContent = TIPS[tipIndex % TIPS.length];
   tipIndex++;
+}
+function showNextUsage() {
+  const el = document.getElementById("usage-text");
+  if (!el) return;
+  el.textContent = USAGES[usageIndex % USAGES.length];
+  usageIndex++;
 }
 
 // =========================================================================
