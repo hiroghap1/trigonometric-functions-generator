@@ -21,11 +21,32 @@
         <option value="dark">🌙 ダーク</option>
         <option value="neko">🐱 ねこ</option>
       </select>
-      <button id="btn-learn"  class="btn btn-ghost" title="解説モード">📘 解説</button>
-      <button id="btn-quiz"   class="btn btn-ghost" title="クイズモード">🎲 クイズ</button>
-      <button id="btn-practice" class="btn btn-ghost" title="練習モード">🎯 練習</button>
-      <button id="btn-add-node" class="btn btn-pink">＋ ノード</button>
-      <button id="btn-screenshot" class="btn btn-mint">📸 スクショ</button>
+
+      <div class="menu-wrap">
+        <button class="btn btn-ghost menu-trigger" data-menu="menu-learn" aria-haspopup="true" aria-expanded="false">📘 学ぶ ▾</button>
+        <div class="menu-popup" id="menu-learn" hidden>
+          <button id="btn-learn"   class="menu-item">📘 解説モードを切替</button>
+          <button id="btn-quiz"    class="menu-item">🎲 クイズ</button>
+          <button id="btn-practice" class="menu-item">🎯 練習</button>
+        </div>
+      </div>
+
+      <div class="menu-wrap">
+        <button class="btn btn-pink menu-trigger" data-menu="menu-share" aria-haspopup="true" aria-expanded="false">🔗 共有 ▾</button>
+        <div class="menu-popup" id="menu-share" hidden>
+          <button id="btn-share"      class="menu-item">🔗 共有URLをコピー</button>
+          <button id="btn-screenshot" class="menu-item">📸 スクリーンショット</button>
+          <button id="btn-css"        class="menu-item">🎨 CSS書き出し</button>
+          <button id="btn-latex"      class="menu-item">🧮 LaTeXコピー</button>
+          <hr class="menu-sep" />
+          <button id="btn-export"     class="menu-item">💾 JSON書き出し</button>
+          <label   class="menu-item" for="file-import">📂 JSON読み込み
+            <input type="file" id="file-import" accept=".json,.sankakukansu.json" hidden />
+          </label>
+          <hr class="menu-sep" />
+          <button id="btn-clear"      class="menu-item menu-item-danger">🧹 すべてクリア</button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -60,13 +81,19 @@
         <button id="btn-zoom-reset" title="リセット">⌂</button>
         <span id="zoom-indicator" class="zoom-indicator">100%</span>
       </div>
+
+      <div class="play-bar" role="toolbar" aria-label="再生コントロール">
+        <button id="btn-play"  class="play-btn" title="再生">▶ 再生</button>
+        <button id="btn-stop"  class="play-btn" title="停止">■ 停止</button>
+        <button id="btn-sound" class="play-btn" title="音で聴く">🔊 音</button>
+      </div>
     </section>
 
     <aside class="sidebar">
       <details open>
         <summary>🌷 はじめかた</summary>
         <ol class="hint">
-          <li>「＋ノード」から関数や演算を追加</li>
+          <li>下の「ノードを作る」から関数や演算を追加</li>
           <li>ノードの「＋」をドラッグして接続</li>
           <li>📈 出力に繋ぐとグラフがプレビュー</li>
           <li>線をクリックすると関係ラベル・矢印を変更</li>
@@ -74,44 +101,36 @@
       </details>
 
       <details open>
-        <summary>🍡 関数ノード</summary>
-        <div class="palette">
-          <button class="chip" data-kind="sin">🌸 sin</button>
-          <button class="chip" data-kind="cos">🍀 cos</button>
-          <button class="chip" data-kind="tan">🔥 tan</button>
-          <button class="chip" data-kind="cot">❄️ cot</button>
-          <button class="chip" data-kind="sec">☀️ sec</button>
-          <button class="chip" data-kind="csc">🌙 csc</button>
-          <button class="chip" data-kind="const">🍡 定数</button>
-          <button class="chip" data-kind="unitcircle">⭕ 単位円</button>
+        <summary>✏️ ノードを作る</summary>
+        <div class="palette-group">
+          <p class="palette-heading">関数</p>
+          <div class="palette">
+            <button class="chip" data-kind="sin">🌸 sin</button>
+            <button class="chip" data-kind="cos">🍀 cos</button>
+            <button class="chip" data-kind="tan">🔥 tan</button>
+            <button class="chip" data-kind="cot">❄️ cot</button>
+            <button class="chip" data-kind="sec">☀️ sec</button>
+            <button class="chip" data-kind="csc">🌙 csc</button>
+            <button class="chip" data-kind="const">🍡 定数</button>
+            <button class="chip" data-kind="unitcircle">⭕ 単位円</button>
+          </div>
+          <p class="palette-heading">演算・変換</p>
+          <div class="palette">
+            <button class="chip" data-kind="add">➕ 合計</button>
+            <button class="chip" data-kind="sub">➖ 差</button>
+            <button class="chip" data-kind="mul">✖️ 積</button>
+            <button class="chip" data-kind="div">➗ 商</button>
+            <button class="chip" data-kind="shift">🎀 平行移動</button>
+            <button class="chip" data-kind="scale">🎁 拡大縮小</button>
+            <button class="chip" data-kind="flip">🪞 反転</button>
+            <button class="chip" data-kind="diff">⚡ 微分</button>
+            <button class="chip" data-kind="integ">★ 積分</button>
+            <button class="chip" data-kind="output">📈 出力</button>
+          </div>
         </div>
       </details>
 
-      <details open>
-        <summary>🎀 演算・変換</summary>
-        <div class="palette">
-          <button class="chip" data-kind="add">➕ 合計</button>
-          <button class="chip" data-kind="sub">➖ 差</button>
-          <button class="chip" data-kind="mul">✖️ 積</button>
-          <button class="chip" data-kind="div">➗ 商</button>
-          <button class="chip" data-kind="shift">🎀 平行移動</button>
-          <button class="chip" data-kind="scale">🎁 拡大縮小</button>
-          <button class="chip" data-kind="flip">🪞 反転</button>
-          <button class="chip" data-kind="diff">⚡ 微分</button>
-          <button class="chip" data-kind="integ">★ 積分</button>
-          <button class="chip" data-kind="output">📈 出力</button>
-        </div>
-      </details>
-
-      <details open>
-        <summary>✨ レイアウト（PC）</summary>
-        <div class="palette">
-          <button class="chip" id="btn-add-group">🌈 グループ</button>
-          <button class="chip" id="btn-add-note">📝 メモ</button>
-        </div>
-      </details>
-
-      <details open>
+      <details>
         <summary>📐 数式から作る</summary>
         <div class="formula-input-wrap">
           <input type="text" id="formula-input" placeholder="例: sin(2x)+cos(x)" />
@@ -124,15 +143,7 @@
         </div>
       </details>
 
-      <details open>
-        <summary>💡 三角関数 Tips</summary>
-        <div class="tips-area">
-          <p id="tip-text" class="tip-text"></p>
-          <button class="chip" id="btn-tip-next">▶ 次のTips</button>
-        </div>
-      </details>
-
-      <details open>
+      <details>
         <summary>🎼 サンプル</summary>
         <div class="palette">
           <button class="chip" data-sample="basic">🌸 sin(x)</button>
@@ -144,26 +155,19 @@
         </div>
       </details>
 
-      <details open>
-        <summary>🔊 出力 / 再生</summary>
+      <details>
+        <summary>✨ レイアウト補助</summary>
         <div class="palette">
-          <button class="chip" id="btn-play"  >▶ 再生</button>
-          <button class="chip" id="btn-stop"  >■ 停止</button>
-          <button class="chip" id="btn-sound" >🔊 音で聴く</button>
-          <button class="chip" id="btn-latex" >🧮 LaTeX</button>
-          <button class="chip" id="btn-css"   >🎨 CSS書き出し</button>
+          <button class="chip" id="btn-add-group">🌈 グループ</button>
+          <button class="chip" id="btn-add-note">📝 メモ</button>
         </div>
       </details>
 
-      <details open>
-        <summary>💾 ファイル</summary>
-        <div class="palette">
-          <button class="chip" id="btn-export">💾 書き出し</button>
-          <button class="chip" id="btn-share">🔗 共有URL</button>
-          <label  class="chip" for="file-import">📂 読み込み
-            <input type="file" id="file-import" accept=".json,.sankakukansu.json" hidden />
-          </label>
-          <button class="chip" id="btn-clear">🧹 すべてクリア</button>
+      <details>
+        <summary>💡 三角関数 Tips</summary>
+        <div class="tips-area">
+          <p id="tip-text" class="tip-text"></p>
+          <button class="chip" id="btn-tip-next">▶ 次のTips</button>
         </div>
       </details>
 
@@ -206,6 +210,10 @@
     <div class="modal-card usage-modal-card">
       <h2>🌍 三角関数はどこで使われてる？</h2>
       <p id="usage-text" class="tip-text usage-text"></p>
+      <label class="usage-skip-label">
+        <input type="checkbox" id="usage-skip-next" />
+        次回から表示しない
+      </label>
       <div class="modal-actions usage-modal-actions">
         <button id="btn-usage-next" class="chip">▶ 次の使われ方</button>
         <button id="usage-close" class="chip">閉じる</button>

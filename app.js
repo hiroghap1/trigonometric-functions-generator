@@ -172,11 +172,13 @@ function bindUi() {
   // ヘッダ
   document.getElementById("btn-undo").addEventListener("click", undo);
   document.getElementById("btn-redo").addEventListener("click", redo);
-  document.getElementById("btn-add-node").addEventListener("click", () => addNode("sin"));
   document.getElementById("btn-screenshot").addEventListener("click", screenshot);
   document.getElementById("btn-learn").addEventListener("click", toggleLearnMode);
   document.getElementById("btn-quiz").addEventListener("click", openQuiz);
   document.getElementById("btn-practice").addEventListener("click", openPractice);
+
+  // ドロップダウンメニュー (📘 学ぶ / 🔗 共有)
+  bindDropdownMenus();
   document.getElementById("practice-close").addEventListener("click", closePractice);
   document.getElementById("practice-check").addEventListener("click", checkPractice);
   document.getElementById("practice-hint-btn").addEventListener("click", showPracticeHint);
@@ -239,15 +241,23 @@ function bindUi() {
   showNextTip();
   document.getElementById("btn-usage-next").addEventListener("click", showNextUsage);
   showNextUsage();
-  // 起動時に使われ方モーダルを表示
+  // 起動時に使われ方モーダルを表示（「次回から表示しない」を選択していなければ）
   const usageModal = document.getElementById("usage-modal");
   if (usageModal) {
-    usageModal.hidden = false;
-    document.getElementById("usage-close").addEventListener("click", () => {
+    const skipPref = (() => { try { return localStorage.getItem("usage-modal-skip") === "1"; } catch (_) { return false; } })();
+    const skipChk = document.getElementById("usage-skip-next");
+    if (skipChk) skipChk.checked = skipPref;
+    if (!skipPref) usageModal.hidden = false;
+    const closeUsage = () => {
+      try {
+        if (skipChk && skipChk.checked) localStorage.setItem("usage-modal-skip", "1");
+        else localStorage.removeItem("usage-modal-skip");
+      } catch (_) {}
       usageModal.hidden = true;
-    });
+    };
+    document.getElementById("usage-close").addEventListener("click", closeUsage);
     usageModal.addEventListener("click", (e) => {
-      if (e.target === usageModal) usageModal.hidden = true;
+      if (e.target === usageModal) closeUsage();
     });
   }
 
@@ -315,6 +325,48 @@ function applyTheme(theme) {
   document.body.dataset.theme = theme;
   state.theme = theme;
 }
+function bindDropdownMenus() {
+  const triggers = document.querySelectorAll(".menu-trigger");
+  triggers.forEach((trig) => {
+    trig.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = trig.dataset.menu;
+      const popup = document.getElementById(id);
+      if (!popup) return;
+      const willOpen = popup.hidden;
+      // 他のメニューはすべて閉じる
+      document.querySelectorAll(".menu-popup").forEach((p) => { if (p !== popup) p.hidden = true; });
+      document.querySelectorAll(".menu-trigger").forEach((t) => {
+        if (t !== trig) t.setAttribute("aria-expanded", "false");
+      });
+      popup.hidden = !willOpen;
+      trig.setAttribute("aria-expanded", String(willOpen));
+    });
+  });
+  // メニュー内項目クリックでメニューを閉じる
+  document.querySelectorAll(".menu-popup .menu-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      const popup = item.closest(".menu-popup");
+      if (popup) popup.hidden = true;
+      const trig = popup ? document.querySelector(`.menu-trigger[data-menu="${popup.id}"]`) : null;
+      if (trig) trig.setAttribute("aria-expanded", "false");
+    });
+  });
+  // 外クリックで閉じる
+  document.addEventListener("click", (e) => {
+    if (e.target.closest(".menu-wrap")) return;
+    document.querySelectorAll(".menu-popup").forEach((p) => p.hidden = true);
+    document.querySelectorAll(".menu-trigger").forEach((t) => t.setAttribute("aria-expanded", "false"));
+  });
+  // Esc で閉じる
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      document.querySelectorAll(".menu-popup").forEach((p) => p.hidden = true);
+      document.querySelectorAll(".menu-trigger").forEach((t) => t.setAttribute("aria-expanded", "false"));
+    }
+  });
+}
+
 function toggleLearnMode() {
   state.learnMode = !state.learnMode;
   const btn = document.getElementById("btn-learn");

@@ -558,6 +558,89 @@ body[data-theme="dark"] .note {
   margin: 0 0 18px;
 }
 .usage-modal-actions { margin-top: 18px; justify-content: flex-end; }
+.usage-skip-label {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--ink); cursor: pointer;
+  margin-top: 8px;
+}
+
+/* ====== トップバーのドロップダウンメニュー ====== */
+.menu-wrap { position: relative; display: inline-block; }
+.menu-trigger { white-space: nowrap; }
+.menu-popup {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  min-width: 200px;
+  padding: 6px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.menu-popup[hidden] { display: none; }
+.menu-popup .menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+.menu-popup .menu-item:hover { background: var(--pink); }
+.menu-popup .menu-item-danger { color: #c43a5b; }
+.menu-popup .menu-item-danger:hover { background: #ffd6e0; }
+.menu-popup .menu-sep {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 4px 2px;
+}
+
+/* ====== フローティング再生バー ====== */
+.play-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(4px);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 6px;
+  box-shadow: var(--shadow);
+  z-index: 25;
+}
+.play-bar .play-btn {
+  border: 0;
+  background: transparent;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.play-bar .play-btn:hover { background: var(--pink); }
+
+/* ====== サイドバー：パレットの見出し ====== */
+.palette-group { display: flex; flex-direction: column; gap: 6px; }
+.palette-heading {
+  margin: 4px 2px 0;
+  font-size: 11px;
+  color: #999;
+  letter-spacing: 0.04em;
+}
 
 /* CSS 書き出しモーダル */
 .css-modal-card {
