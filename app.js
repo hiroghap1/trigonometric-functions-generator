@@ -44,6 +44,7 @@ let selectedNoteId = null;
 let dragState = null;
 let connectState = null;
 let curveDragState = null;
+let edgeEndpointDragState = null;  // { edgeId, end: 'from'|'to', cursor: {x,y} }
 let noteDragState = null;
 let noteResizeState = null;
 let rectSelectState = null;
@@ -1006,9 +1007,14 @@ function renderEdges() {
   edgesSvg.appendChild(defs);
 
   state.edges.forEach((edge) => {
-    const a = nodeAnchor(edge.from, "right");
-    const b = nodeAnchor(edge.to, "left");
+    let a = nodeAnchor(edge.from, "right");
+    let b = nodeAnchor(edge.to, "left");
     if (!a || !b) return;
+    // エッジの端点ドラッグ中はその端を cursor に置き換える
+    if (edgeEndpointDragState && edgeEndpointDragState.edgeId === edge.id) {
+      if (edgeEndpointDragState.end === "from") a = { ...edgeEndpointDragState.cursor };
+      else                                      b = { ...edgeEndpointDragState.cursor };
+    }
     const cx = (a.x + b.x) / 2 + (edge.ctrl ? edge.ctrl.dx : 0);
     const cy = (a.y + b.y) / 2 + (edge.ctrl ? edge.ctrl.dy : 0);
 
@@ -1035,7 +1041,8 @@ function renderEdges() {
     hit.setAttribute("d", d);
     hit.setAttribute("class", "edge-path");
     hit.dataset.id = edge.id;
-    hit.addEventListener("click", (e) => onEdgeClick(edge.id, e));
+    // mousedown：クリック位置に近い端点を即ドラッグ開始（付け替え/外し）
+    hit.addEventListener("mousedown", (e) => onEdgePathMouseDown(edge.id, a, b, e));
     edgesSvg.appendChild(hit);
 
     // ラベル
@@ -1059,6 +1066,19 @@ function renderEdges() {
       handle.style.pointerEvents = "auto";
       handle.addEventListener("mousedown", (e) => startCurveDrag(edge.id, e));
       edgesSvg.appendChild(handle);
+
+      // 端点ハンドル（from / to）— ドラッグで別ノードに付け替え、空き地で取り外し
+      [["from", a], ["to", b]].forEach(([end, pt]) => {
+        const ep = document.createElementNS(ns, "circle");
+        ep.setAttribute("cx", pt.x);
+        ep.setAttribute("cy", pt.y);
+        ep.setAttribute("r", 7);
+        ep.setAttribute("class", "edge-endpoint-handle");
+        ep.dataset.end = end;
+        ep.style.pointerEvents = "auto";
+        ep.addEventListener("mousedown", (e) => startEdgeEndpointDrag(edge.id, end, e));
+        edgesSvg.appendChild(ep);
+      });
     }
   });
 
@@ -1563,7 +1583,7 @@ function renderEdgeInspector() {
         <option value="wavy"   ${edge.style==="wavy"?"selected":""}>∿ 波線</option>
       </select>
     </div>
-    <p class="muted">線をクリックでもクイック編集できます</p>
+    <p class="muted">🤏 両端の○ハンドルをドラッグで別ノードへ付け替え／空き地へドロップで取り外し</p>
     <button class="chip" id="i-edge-del">🗑 削除</button>
   `;
   document.getElementById("i-edge-label").addEventListener("input", (e) => setEdgeLabel(edge.id, e.target.value));
@@ -1744,15 +1764,87 @@ function onCurveEnd() {
   document.removeEventListener("mouseup",   onCurveEnd);
 }
 
+// 線そのものをクリック → 近い端点を即ドラッグ開始
+function onEdgePathMouseDown(edgeId, a, b, e) {
+  e.stopPropagation();
+  e.preventDefault();
+  const p = relPoint(e);
+  const dFrom = (p.x - a.x) ** 2 + (p.y - a.y) ** 2;
+  const dTo   = (p.x - b.x) ** 2 + (p.y - b.y) ** 2;
+  const end = dFrom < dTo ? "from" : "to";
+  selectedEdgeId = edgeId;
+  selectedId = selectedGroupId = selectedNoteId = null;
+  selectedIds.clear();
+  if (edgePopup) edgePopup.hidden = true;
+  renderInspector();
+  startEdgeEndpointDrag(edgeId, end, e);
+}
+
+// ---- エッジ端点のドラッグ：別ノードへ付け替え／空き地で取り外し ----
+function startEdgeEndpointDrag(edgeId, end, e) {
+  e.stopPropagation();
+  e.preventDefault();
+  const edge = state.edges.find((x) => x.id === edgeId);
+  if (!edge) return;
+  edgeEndpointDragState = { edgeId, end, cursor: relPoint(e), moved: false };
+  canvasWrap.classList.add("connecting");
+  document.addEventListener("mousemove", onEdgeEndpointMove);
+  document.addEventListener("mouseup",   onEdgeEndpointEnd);
+}
+function onEdgeEndpointMove(e) {
+  if (!edgeEndpointDragState) return;
+  edgeEndpointDragState.cursor = relPoint(e);
+  edgeEndpointDragState.moved = true;
+  // ホバー中のノードをハイライト
+  const tgt = document.elementFromPoint(e.clientX, e.clientY);
+  const nodeEl = tgt && tgt.closest && tgt.closest(".node");
+  document.querySelectorAll(".node.endpoint-target").forEach((el) => el.classList.remove("endpoint-target"));
+  if (nodeEl) nodeEl.classList.add("endpoint-target");
+  renderEdges();
+}
+function onEdgeEndpointEnd(e) {
+  document.removeEventListener("mousemove", onEdgeEndpointMove);
+  document.removeEventListener("mouseup",   onEdgeEndpointEnd);
+  canvasWrap.classList.remove("connecting");
+  document.querySelectorAll(".node.endpoint-target").forEach((el) => el.classList.remove("endpoint-target"));
+  if (!edgeEndpointDragState) return;
+  const { edgeId, end, moved } = edgeEndpointDragState;
+  edgeEndpointDragState = null;
+  if (!moved) { renderEdges(); return; }
+  const edge = state.edges.find((x) => x.id === edgeId);
+  if (!edge) { renderEdges(); return; }
+  const tgt = document.elementFromPoint(e.clientX, e.clientY);
+  const nodeEl = tgt && tgt.closest && tgt.closest(".node");
+  if (nodeEl) {
+    const newId = nodeEl.dataset.id;
+    // 自己ループ・もう一方の端と同一・既に存在する重複は無視
+    const otherEnd = end === "from" ? edge.to : edge.from;
+    if (newId === otherEnd) { renderEdges(); return; }
+    const dup = state.edges.some((x) =>
+      x.id !== edge.id &&
+      ((end === "from" && x.from === newId && x.to === edge.to) ||
+       (end === "to"   && x.from === edge.from && x.to === newId))
+    );
+    if (dup) { renderEdges(); return; }
+    pushHistory();
+    if (end === "from") edge.from = newId; else edge.to = newId;
+    save();
+  } else {
+    // 空き地にドロップ → 線を取り外す（削除）
+    pushHistory();
+    deleteEdge(edgeId);
+    return;
+  }
+  renderEdges();
+}
+
 function onEdgeClick(edgeId, e) {
   e.stopPropagation();
   selectedEdgeId = edgeId;
   selectedId = selectedGroupId = selectedNoteId = null;
   selectedIds.clear();
-  // ポップアップ（ビューポート基準で配置）
-  edgePopup.style.left = (e.clientX + 10) + "px";
-  edgePopup.style.top  = (e.clientY + 10) + "px";
-  edgePopup.hidden = false;
+  // 関係ラベル/スタイルのポップアップは一旦無効化（付け替え/外しに集中）
+  if (edgePopup) edgePopup.hidden = true;
   renderInspector();
   renderEdges();
 }
