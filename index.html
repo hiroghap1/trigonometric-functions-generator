@@ -27,6 +27,7 @@ onerror="window.__html2canvas_failed=true" defer></script>
     <div class="topbar-right">
       <button id="btn-undo"   class="btn btn-ghost" title="元に戻す (Ctrl+Z)">↶</button>
       <button id="btn-redo"   class="btn btn-ghost" title="やり直し (Ctrl+Y)">↷</button>
+      <button id="btn-angle-unit" class="btn btn-ghost" title="角度の表記 (rad ⇄ deg)">θ rad</button>
       <select id="theme-select" class="btn btn-ghost" title="テーマ">
         <option value="pastel">🌸 ぱすてる</option>
         <option value="wa">🎏 和風</option>
@@ -40,6 +41,8 @@ onerror="window.__html2canvas_failed=true" defer></script>
           <button id="btn-learn"   class="menu-item">📘 解説モードを切替</button>
           <button id="btn-quiz"    class="menu-item">🎲 クイズ</button>
           <button id="btn-practice" class="menu-item">🎯 練習</button>
+          <hr class="menu-sep" />
+          <button id="btn-tips"    class="menu-item">💡 三角関数 Tips</button>
         </div>
       </div>
 
@@ -123,6 +126,9 @@ onerror="window.__html2canvas_failed=true" defer></script>
             <button class="chip" data-kind="cot">❄️ cot</button>
             <button class="chip" data-kind="sec">☀️ sec</button>
             <button class="chip" data-kind="csc">🌙 csc</button>
+            <button class="chip" data-kind="asin">🌷 arcsin</button>
+            <button class="chip" data-kind="acos">🌼 arccos</button>
+            <button class="chip" data-kind="atan">💫 arctan</button>
             <button class="chip" data-kind="const">🍡 定数</button>
             <button class="chip" data-kind="unitcircle">⭕ 単位円</button>
           </div>
@@ -150,7 +156,7 @@ onerror="window.__html2canvas_failed=true" defer></script>
             <button class="chip" id="btn-formula">✨ 作る</button>
             <button class="chip" id="btn-auto-layout">🌟 整列</button>
           </div>
-          <p class="muted">対応: sin/cos/tan/cot/sec/csc, π, +,-,*,/, 数値, 括弧</p>
+          <p class="muted">対応: sin/cos/tan/cot/sec/csc/asin/acos/atan, π, +,-,*,/, 数値, 括弧</p>
           <p class="muted" id="formula-msg"></p>
         </div>
       </details>
@@ -172,14 +178,6 @@ onerror="window.__html2canvas_failed=true" defer></script>
         <div class="palette">
           <button class="chip" id="btn-add-group">🌈 グループ</button>
           <button class="chip" id="btn-add-note">📝 メモ</button>
-        </div>
-      </details>
-
-      <details>
-        <summary>💡 三角関数 Tips</summary>
-        <div class="tips-area">
-          <p id="tip-text" class="tip-text"></p>
-          <button class="chip" id="btn-tip-next">▶ 次のTips</button>
         </div>
       </details>
 
@@ -214,6 +212,18 @@ onerror="window.__html2canvas_failed=true" defer></script>
     </div>
     <div class="popup-row">
       <button id="edge-delete">🗑 削除</button>
+    </div>
+  </div>
+
+  <!-- Tips モーダル -->
+  <div id="tips-modal" class="modal" hidden>
+    <div class="modal-card usage-modal-card">
+      <h2>💡 三角関数 Tips</h2>
+      <p id="tip-text" class="tip-text usage-text"></p>
+      <div class="modal-actions usage-modal-actions">
+        <button id="btn-tip-next" class="chip">▶ 次のTips</button>
+        <button id="tips-close" class="chip">閉じる</button>
+      </div>
     </div>
   </div>
 

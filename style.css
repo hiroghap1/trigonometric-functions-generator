@@ -217,6 +217,9 @@ select.btn-ghost { padding-right: 26px; }
 .node.kind-cot { background: color-mix(in srgb, #d8ecff 60%, var(--node-bg)); }
 .node.kind-sec { background: color-mix(in srgb, #fff5b8 60%, var(--node-bg)); }
 .node.kind-csc { background: color-mix(in srgb, var(--lav)  60%, var(--node-bg)); }
+.node.kind-asin { background: color-mix(in srgb, var(--pink) 30%, var(--node-bg)); }
+.node.kind-acos { background: color-mix(in srgb, var(--mint) 30%, var(--node-bg)); }
+.node.kind-atan { background: color-mix(in srgb, #ffe1bf 35%, var(--node-bg)); }
 .node.kind-const { background: color-mix(in srgb, #fff5b8 50%, var(--node-bg)); }
 .node.kind-unitcircle { background: color-mix(in srgb, #ffe6f1 60%, var(--node-bg)); }
 .node.kind-add, .node.kind-sub,

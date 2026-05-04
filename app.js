@@ -16,6 +16,9 @@ const KIND_DEFS = {
   cot:        { icon: "❄️", label: "cot", cat: "fn", defaults: { a: 1, b: 1, c: 0, d: 0, useTime: false }, hint: "cot θ = cos/sin ❄️ tanの逆数" },
   sec:        { icon: "☀️", label: "sec", cat: "fn", defaults: { a: 1, b: 1, c: 0, d: 0, useTime: false }, hint: "sec θ = 1/cos ☀️" },
   csc:        { icon: "🌙", label: "csc", cat: "fn", defaults: { a: 1, b: 1, c: 0, d: 0, useTime: false }, hint: "csc θ = 1/sin 🌙" },
+  asin:       { icon: "🌷", label: "arcsin", cat: "fn", defaults: { a: 1, b: 1, c: 0, d: 0, useTime: false }, hint: "arcsin: sinの逆。x ∈ [-1,1] → y ∈ [-π/2, π/2]🌷" },
+  acos:       { icon: "🌼", label: "arccos", cat: "fn", defaults: { a: 1, b: 1, c: 0, d: 0, useTime: false }, hint: "arccos: cosの逆。x ∈ [-1,1] → y ∈ [0, π]🌼" },
+  atan:       { icon: "💫", label: "arctan", cat: "fn", defaults: { a: 1, b: 1, c: 0, d: 0, useTime: false }, hint: "arctan: tanの逆。全実数 → y ∈ (-π/2, π/2)💫" },
   const:      { icon: "🍡", label: "定数", cat: "const", defaults: { value: 1 }, hint: "x によらない一定の値🍡" },
   unitcircle: { icon: "⭕", label: "単位円", cat: "const", defaults: { angle: Math.PI / 4, autoRotate: false, output: "sin" }, hint: "角度θから sin/cos が得られる⭕" },
   add:        { icon: "➕", label: "合計", cat: "op",  defaults: {}, hint: "繋がっている入力の合計➕" },
@@ -165,6 +168,7 @@ function createEmptyState() {
     seq: 1,
     theme: "pastel",
     learnMode: false,
+    angleUnit: "rad",
     view: { panX: 0, panY: 0, zoom: 1 },
   };
 }
@@ -187,6 +191,12 @@ function bindUi() {
   const themeSel = document.getElementById("theme-select");
   themeSel.value = state.theme || "pastel";
   themeSel.addEventListener("change", (e) => { applyTheme(e.target.value); save(); });
+
+  const btnAngle = document.getElementById("btn-angle-unit");
+  if (btnAngle) {
+    updateAngleUnitButton();
+    btnAngle.addEventListener("click", toggleAngleUnit);
+  }
 
   // パレット
   document.querySelectorAll(".palette .chip[data-kind]").forEach((el) => {
@@ -240,6 +250,13 @@ function bindUi() {
   // Tips
   document.getElementById("btn-tip-next").addEventListener("click", showNextTip);
   showNextTip();
+  const tipsModal = document.getElementById("tips-modal");
+  const btnTips = document.getElementById("btn-tips");
+  if (btnTips && tipsModal) {
+    btnTips.addEventListener("click", () => { tipsModal.hidden = false; });
+    document.getElementById("tips-close").addEventListener("click", () => { tipsModal.hidden = true; });
+    tipsModal.addEventListener("click", (e) => { if (e.target === tipsModal) tipsModal.hidden = true; });
+  }
   document.getElementById("btn-usage-next").addEventListener("click", showNextUsage);
   showNextUsage();
   // 起動時に使われ方モーダルを表示（「次回から表示しない」を選択していなければ）
@@ -366,6 +383,21 @@ function bindDropdownMenus() {
       document.querySelectorAll(".menu-trigger").forEach((t) => t.setAttribute("aria-expanded", "false"));
     }
   });
+}
+
+function toggleAngleUnit() {
+  state.angleUnit = state.angleUnit === "deg" ? "rad" : "deg";
+  updateAngleUnitButton();
+  save();
+  renderAll();
+  // 単位円の小キャンバスも更新
+  state.nodes.filter((n) => n.kind === "unitcircle").forEach(drawUnitCircle);
+}
+function updateAngleUnitButton() {
+  const btn = document.getElementById("btn-angle-unit");
+  if (!btn) return;
+  btn.textContent = state.angleUnit === "deg" ? "θ deg" : "θ rad";
+  btn.title = state.angleUnit === "deg" ? "現在: 度（°）。クリックで rad に切替" : "現在: ラジアン。クリックで deg に切替";
 }
 
 function toggleLearnMode() {
@@ -789,7 +821,8 @@ function evaluate(nodeId, x, t = 0, depth = 0) {
   const incoming = state.edges.filter((e) => e.to === nodeId).map((e) => e.from);
   const p = node.params || {};
   switch (node.kind) {
-    case "sin": case "cos": case "tan": case "cot": case "sec": case "csc": {
+    case "sin": case "cos": case "tan": case "cot": case "sec": case "csc":
+    case "asin": case "acos": case "atan": {
       const arg = p.b * (x + (p.useTime ? t : 0)) + p.c;
       let base;
       switch (node.kind) {
@@ -799,6 +832,9 @@ function evaluate(nodeId, x, t = 0, depth = 0) {
         case "cot": base = 1 / Math.tan(arg); break;
         case "sec": base = 1 / Math.cos(arg); break;
         case "csc": base = 1 / Math.sin(arg); break;
+        case "asin": base = Math.asin(arg); break;
+        case "acos": base = Math.acos(arg); break;
+        case "atan": base = Math.atan(arg); break;
       }
       return p.a * base + p.d;
     }
@@ -875,8 +911,13 @@ function formulaOf(nodeId, latex = false, depth = 0) {
   const p = node.params || {};
   const xv = latex ? "x" : "x";
   switch (node.kind) {
-    case "sin": case "cos": case "tan": case "cot": case "sec": case "csc": {
-      const fn = latex ? "\\" + node.kind : node.kind;
+    case "sin": case "cos": case "tan": case "cot": case "sec": case "csc":
+    case "asin": case "acos": case "atan": {
+      const latexNames = { asin: "\\arcsin", acos: "\\arccos", atan: "\\arctan" };
+      const plainNames = { asin: "arcsin", acos: "arccos", atan: "arctan" };
+      const fn = latex
+        ? (latexNames[node.kind] || ("\\" + node.kind))
+        : (plainNames[node.kind] || node.kind);
       const inner = `${fmt(p.b)}${xv}${fmtSigned(p.c)}`;
       const body = `${fn}(${inner})`;
       const a = p.a === 1 ? body : (p.a === -1 ? "-" + body : `${fmt(p.a)} \\cdot ${body}`.replace("\\cdot", latex ? "\\cdot" : "·"));
@@ -1222,9 +1263,12 @@ function subtitleFor(node) {
   switch (node.kind) {
     case "sin": case "cos": case "tan":
     case "cot": case "sec": case "csc":
-      return `${fmt(p.a)}·${node.kind}(${fmt(p.b)}x${fmtSigned(p.c)})${fmtSigned(p.d)}` + (p.useTime ? " ⏱" : "");
+    case "asin": case "acos": case "atan": {
+      const fnName = ({ asin: "arcsin", acos: "arccos", atan: "arctan" })[node.kind] || node.kind;
+      return `${fmt(p.a)}·${fnName}(${fmt(p.b)}x${fmtPhaseSigned(p.c)})${fmtSigned(p.d)}` + (p.useTime ? " ⏱" : "");
+    }
     case "const":      return `= ${fmt(p.value)}`;
-    case "unitcircle": return `θ=${fmt(p.angle)} → ${p.output}`;
+    case "unitcircle": return `θ=${fmtAngle(p.angle)} → ${p.output}`;
     case "add":  return "Σ 入力";
     case "sub":  return "1番目 - 残り";
     case "mul":  return "Π 入力";
@@ -1261,9 +1305,9 @@ function drawOutput(node) {
   const t = animState.t;
 
   if (mode === "graph") {
-    drawAxes(ctx, w, h, lineCol);
     const xMin = -2 * Math.PI, xMax = 2 * Math.PI;
     const yScale = 18;
+    drawAxes(ctx, w, h, lineCol, { gridGraph: { xMin, xMax, yScale } });
     const ins = outputInputs(node.id);
     if (ins.length === 0) {
       ctx.fillStyle = "#bbb";
@@ -1317,18 +1361,18 @@ function drawOutput(node) {
   } else if (mode === "lissajous") {
     // 入力2つを (x(t), y(t)) として描く
     const ins = outputInputs(node.id);
+    const sc = Math.min(w, h) / 4;
     if (ins.length < 2) {
-      drawAxes(ctx, w, h, lineCol);
+      drawAxes(ctx, w, h, lineCol, { gridUnit: { sc } });
       ctx.fillStyle = "#bbb";
       ctx.font = "12px sans-serif";
       ctx.fillText("入力2つを繋ぐと描画されるよ", 6, h / 2);
       return;
     }
-    drawAxes(ctx, w, h, lineCol);
+    drawAxes(ctx, w, h, lineCol, { gridUnit: { sc } });
     ctx.beginPath();
     ctx.strokeStyle = edgeCol; ctx.lineWidth = 1.5;
     const N = 400;
-    const sc = Math.min(w, h) / 4;
     for (let i = 0; i <= N; i++) {
       const u = (i / N) * 2 * Math.PI;
       const xv = evaluate(ins[0], u, t);
@@ -1339,11 +1383,11 @@ function drawOutput(node) {
     }
     ctx.stroke();
   } else if (mode === "polar") {
-    drawAxes(ctx, w, h, lineCol);
+    const sc = Math.min(w, h) / 4;
+    drawAxes(ctx, w, h, lineCol, { gridUnit: { sc } });
     ctx.beginPath();
     ctx.strokeStyle = edgeCol; ctx.lineWidth = 1.5;
     const N = 400;
-    const sc = Math.min(w, h) / 4;
     let started = false;
     for (let i = 0; i <= N; i++) {
       const theta = (i / N) * 2 * Math.PI;
@@ -1388,7 +1432,8 @@ function onGraphHover(e, cv, node) {
   const x = xMin + (Math.max(0, Math.min(cv.offsetWidth, px)) / cv.offsetWidth) * (xMax - xMin);
   const t = animState.t;
   const ins = outputInputs(node.id);
-  let bodyHtml = `x = ${x.toFixed(3)}`;
+  const xDisp = state.angleUnit === "deg" ? `${(x * 180 / Math.PI).toFixed(1)}°` : x.toFixed(3);
+  let bodyHtml = `x = ${xDisp}`;
   if (ins.length === 0) {
     bodyHtml += "<br><span style='color:#bbb'>(未接続)</span>";
   } else {
@@ -1406,11 +1451,75 @@ function onGraphHover(e, cv, node) {
   hintTip.hidden = false;
 }
 
-function drawAxes(ctx, w, h, lineCol) {
+function drawAxes(ctx, w, h, lineCol, opts) {
   ctx.strokeStyle = lineCol;
   ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h); ctx.stroke();
+  if (opts && opts.gridGraph) drawGraphGuides(ctx, w, h, opts.gridGraph);
+  else if (opts && opts.gridUnit) drawUnitGuides(ctx, w, h, opts.gridUnit);
+}
+
+// 波形グラフ用の基準補助線: y=±1 と x=±π/2, ±π, ±3π/2, ±2π（または度数）
+function drawGraphGuides(ctx, w, h, { xMin, xMax, yScale }) {
+  ctx.save();
+  ctx.strokeStyle = "rgba(160, 120, 160, 0.22)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([2, 3]);
+  // y = ±1
+  [-1, 1].forEach((y) => {
+    const py = h / 2 - y * yScale;
+    if (py >= 0 && py <= h) {
+      ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(w, py); ctx.stroke();
+    }
+  });
+  // x の主要角度
+  const labels = (state.angleUnit === "deg")
+    ? [-360, -270, -180, -90, 90, 180, 270, 360]
+        .map((d) => ({ x: d * Math.PI / 180, label: d + "°" }))
+    : [
+        { x: -2 * Math.PI,    label: "−2π" },
+        { x: -1.5 * Math.PI,  label: "−3π/2" },
+        { x: -Math.PI,        label: "−π" },
+        { x: -Math.PI / 2,    label: "−π/2" },
+        { x:  Math.PI / 2,    label: "π/2" },
+        { x:  Math.PI,        label: "π" },
+        { x:  1.5 * Math.PI,  label: "3π/2" },
+        { x:  2 * Math.PI,    label: "2π" },
+      ];
+  labels.forEach(({ x }) => {
+    if (x < xMin || x > xMax) return;
+    const px = ((x - xMin) / (xMax - xMin)) * w;
+    ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, h); ctx.stroke();
+  });
+  // ラベル
+  ctx.setLineDash([]);
+  ctx.fillStyle = "rgba(120, 90, 130, 0.65)";
+  ctx.font = "9px sans-serif";
+  ctx.textAlign = "center";
+  labels.forEach(({ x, label }) => {
+    if (x < xMin || x > xMax) return;
+    const px = ((x - xMin) / (xMax - xMin)) * w;
+    ctx.fillText(label, px, h - 1);
+  });
+  ctx.textAlign = "left";
+  const py1 = h / 2 - yScale;
+  const pyM1 = h / 2 + yScale;
+  if (py1 >= 9) ctx.fillText("1", 2, py1 - 2);
+  if (pyM1 <= h - 1) ctx.fillText("-1", 2, pyM1 + 9);
+  ctx.restore();
+}
+
+// リサジュー / 極座標用: 半径1の単位円ガイド
+function drawUnitGuides(ctx, w, h, { sc }) {
+  ctx.save();
+  ctx.strokeStyle = "rgba(160, 120, 160, 0.22)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  ctx.arc(w / 2, h / 2, sc, 0, 2 * Math.PI);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawUnitCircle(node) {
@@ -1450,7 +1559,10 @@ function drawUnitCircle(node) {
 
   ctx.fillStyle = "#888";
   ctx.font = "10px sans-serif";
-  ctx.fillText(`θ=${ang.toFixed(2)}`, 4, 12);
+  const angText = state.angleUnit === "deg"
+    ? `θ=${(ang * 180 / Math.PI).toFixed(0)}°`
+    : `θ=${ang.toFixed(2)}`;
+  ctx.fillText(angText, 4, 12);
   ctx.fillText(`sin=${Math.sin(ang).toFixed(2)}`, 4, h - 14);
   ctx.fillText(`cos=${Math.cos(ang).toFixed(2)}`, 4, h - 2);
 }
@@ -1472,20 +1584,27 @@ function renderNodeInspector() {
   const p = node.params || {};
   let html = `<div class="row"><label>名前</label><input type="text" data-key="name" value="${escapeAttr(node.name)}"></div>`;
 
-  if (["sin", "cos", "tan", "cot", "sec", "csc"].includes(node.kind)) {
+  if (["sin", "cos", "tan", "cot", "sec", "csc", "asin", "acos", "atan"].includes(node.kind)) {
+    const fnDisp = ({ asin: "arcsin", acos: "arccos", atan: "arctan" })[node.kind] || node.kind;
+    const cVal = state.angleUnit === "deg" ? (p.c * 180 / Math.PI) : p.c;
+    const cStep = state.angleUnit === "deg" ? "1" : "0.1";
+    const cUnit = state.angleUnit === "deg" ? "°" : "rad";
     html += `
-      <p class="muted">y = a · ${node.kind}(b·x + c) + d</p>
+      <p class="muted">y = a · ${fnDisp}(b·x + c) + d</p>
       <div class="row"><label>a 振幅</label><input type="number" step="0.1" data-key="params.a" value="${p.a}"></div>
       <div class="row"><label>b 周期</label><input type="number" step="0.1" data-key="params.b" value="${p.b}"></div>
-      <div class="row"><label>c 位相</label><input type="number" step="0.1" data-key="params.c" value="${p.c}"></div>
+      <div class="row"><label>c 位相 (${cUnit})</label><input type="number" step="${cStep}" data-key="params.c" data-angle="1" value="${(+cVal).toFixed(state.angleUnit === "deg" ? 2 : 4).replace(/\.?0+$/, "")}"></div>
       <div class="row"><label>d 上下</label><input type="number" step="0.1" data-key="params.d" value="${p.d}"></div>
       <div class="row"><label>時間連動</label><input type="checkbox" data-key="params.useTime" ${p.useTime ? "checked" : ""}></div>
     `;
   } else if (node.kind === "const") {
     html += `<div class="row"><label>値</label><input type="number" step="0.1" data-key="params.value" value="${p.value}"></div>`;
   } else if (node.kind === "unitcircle") {
+    const angDisp = state.angleUnit === "deg" ? (p.angle * 180 / Math.PI) : p.angle;
+    const angStep = state.angleUnit === "deg" ? "1" : "0.05";
+    const angUnit = state.angleUnit === "deg" ? "°" : "rad";
     html += `
-      <div class="row"><label>角度θ</label><input type="number" step="0.05" data-key="params.angle" value="${p.angle}"></div>
+      <div class="row"><label>角度θ (${angUnit})</label><input type="number" step="${angStep}" data-key="params.angle" data-angle="1" value="${(+angDisp).toFixed(state.angleUnit === "deg" ? 1 : 4).replace(/\.?0+$/, "")}"></div>
       <div class="row"><label>自動回転</label><input type="checkbox" data-key="params.autoRotate" ${p.autoRotate ? "checked" : ""}></div>
       <div class="row"><label>出力</label>
         <select data-key="params.output">
@@ -1556,7 +1675,12 @@ function commitInspector(el, node) {
   if (!key) return;
   let value;
   if (el.type === "checkbox") value = el.checked;
-  else if (el.type === "number") value = parseFloat(el.value);
+  else if (el.type === "number") {
+    value = parseFloat(el.value);
+    if (el.dataset.angle === "1" && state.angleUnit === "deg" && !isNaN(value)) {
+      value = value * Math.PI / 180;
+    }
+  }
   else value = el.value;
   if (key.startsWith("params.")) {
     node.params[key.slice(7)] = (typeof value === "number" && isNaN(value)) ? 0 : value;
@@ -1949,6 +2073,7 @@ function migrate(data) {
     view:   { ...base.view, ...(data.view || {}) },
     theme:  data.theme  || "pastel",
     learnMode: !!data.learnMode,
+    angleUnit: data.angleUnit === "deg" ? "deg" : "rad",
   };
 }
 
@@ -2520,7 +2645,9 @@ function importJson(e) {
 // =========================================================================
 function loadSample(kind) {
   pushHistory();
+  const prevAngleUnit = state.angleUnit;
   state = createEmptyState();
+  state.angleUnit = prevAngleUnit || "rad";
   applyTheme(state.theme || document.body.dataset.theme || "pastel");
   applyView();
   const v = visibleRect();
@@ -2764,7 +2891,7 @@ function nextQuiz() {
   const styles = getComputedStyle(document.body);
   const lineCol = styles.getPropertyValue("--line").trim() || "#f1c8d8";
   const edgeCol = styles.getPropertyValue("--edge").trim() || "#ff8fb5";
-  drawAxes(ctx, cv.width, cv.height, lineCol);
+  drawAxes(ctx, cv.width, cv.height, lineCol, { gridGraph: { xMin: -2 * Math.PI, xMax: 2 * Math.PI, yScale: 22 } });
   ctx.beginPath(); ctx.strokeStyle = edgeCol; ctx.lineWidth = 2;
   for (let px = 0; px <= cv.width; px++) {
     const x = -2 * Math.PI + (px / cv.width) * 4 * Math.PI;
@@ -2811,6 +2938,20 @@ function fmtSigned(n) {
   const s = fmt(Math.abs(n));
   return (n >= 0 ? " + " : " - ") + s;
 }
+// 角度表示: state.angleUnit に応じて rad / deg で見せる
+function fmtAngle(rad) {
+  if (state.angleUnit === "deg") return fmt(rad * 180 / Math.PI) + "°";
+  return fmt(rad);
+}
+function fmtPhaseSigned(rad) {
+  if (!rad) return "";
+  if (state.angleUnit === "deg") {
+    const deg = rad * 180 / Math.PI;
+    const s = fmt(Math.abs(deg)) + "°";
+    return (deg >= 0 ? " + " : " - ") + s;
+  }
+  return fmtSigned(rad);
+}
 
 // =========================================================================
 // 数式パーサ (sin/cos/tan/cot/sec/csc + 四則演算 + π / 数値 / 括弧)
@@ -2846,7 +2987,7 @@ function tokenize(s) {
     inserted.push(cur);
     if (!next) continue;
     const isFnCall = cur.type === "IDENT" && next.type === "LPAREN" &&
-      ["sin", "cos", "tan", "cot", "sec", "csc"].includes(cur.value);
+      ["sin", "cos", "tan", "cot", "sec", "csc", "asin", "acos", "atan", "arcsin", "arccos", "arctan"].includes(cur.value);
     if (
       (cur.type === "NUM"   && (next.type === "IDENT" || next.type === "LPAREN")) ||
       (cur.type === "RPAREN" && (next.type === "IDENT" || next.type === "LPAREN")) ||
@@ -2956,7 +3097,8 @@ function tryLinear(ast) {
 }
 
 function buildFromAst(ast) {
-  const FUNCS = ["sin", "cos", "tan", "cot", "sec", "csc"];
+  const FUNCS = ["sin", "cos", "tan", "cot", "sec", "csc", "asin", "acos", "atan"];
+  const FUNC_ALIASES = { arcsin: "asin", arccos: "acos", arctan: "atan" };
   switch (ast.type) {
     case "num":  return mkNode("const", 0, 0, { value: ast.value }).id;
     case "ident":
@@ -2965,10 +3107,11 @@ function buildFromAst(ast) {
       if (ast.value === "x")  throw new Error("x 単独の式は未対応です（関数の中で使ってね）");
       throw new Error("未知の名前: " + ast.value);
     case "func": {
-      if (!FUNCS.includes(ast.name)) throw new Error("未対応の関数: " + ast.name);
+      const fname = FUNC_ALIASES[ast.name] || ast.name;
+      if (!FUNCS.includes(fname)) throw new Error("未対応の関数: " + ast.name);
       const lin = tryLinear(ast.arg);
       if (!lin) throw new Error(`${ast.name}() の引数は Bx+C の形にしてね`);
-      return mkNode(ast.name, 0, 0, { a: 1, b: lin.b, c: lin.c, d: 0 }).id;
+      return mkNode(fname, 0, 0, { a: 1, b: lin.b, c: lin.c, d: 0 }).id;
     }
     case "neg": {
       // 数値なら直接
@@ -2983,13 +3126,19 @@ function buildFromAst(ast) {
       // (定数) × (関数 or 式) は a パラメータに畳み込む
       const cL = (function ec(a) { return tryLinear(a) && tryLinear(a).b === 0 ? tryLinear(a).c : null; })(ast.left);
       const cR = (function ec(a) { return tryLinear(a) && tryLinear(a).b === 0 ? tryLinear(a).c : null; })(ast.right);
-      if (cL !== null && ast.right.type === "func" && FUNCS.includes(ast.right.name)) {
-        const lin = tryLinear(ast.right.arg);
-        if (lin) return mkNode(ast.right.name, 0, 0, { a: cL, b: lin.b, c: lin.c, d: 0 }).id;
+      if (cL !== null && ast.right.type === "func") {
+        const fr = FUNC_ALIASES[ast.right.name] || ast.right.name;
+        if (FUNCS.includes(fr)) {
+          const lin = tryLinear(ast.right.arg);
+          if (lin) return mkNode(fr, 0, 0, { a: cL, b: lin.b, c: lin.c, d: 0 }).id;
+        }
       }
-      if (cR !== null && ast.left.type === "func" && FUNCS.includes(ast.left.name)) {
-        const lin = tryLinear(ast.left.arg);
-        if (lin) return mkNode(ast.left.name, 0, 0, { a: cR, b: lin.b, c: lin.c, d: 0 }).id;
+      if (cR !== null && ast.left.type === "func") {
+        const fl = FUNC_ALIASES[ast.left.name] || ast.left.name;
+        if (FUNCS.includes(fl)) {
+          const lin = tryLinear(ast.left.arg);
+          if (lin) return mkNode(fl, 0, 0, { a: cR, b: lin.b, c: lin.c, d: 0 }).id;
+        }
       }
       // 一般: mul ノード
       const op = mkNode("mul", 0, 0);
@@ -3013,7 +3162,9 @@ function applyFormula(input) {
   try {
     const ast = parseFormula(input);
     pushHistory();
+    const prevAngleUnit = state.angleUnit;
     state = createEmptyState();
+    state.angleUnit = prevAngleUnit || "rad";
     applyTheme(state.theme || document.body.dataset.theme || "pastel");
     applyView();
     const rootId = buildFromAst(ast);
@@ -3129,11 +3280,11 @@ function drawPracticeTarget(problem) {
   const styles = getComputedStyle(document.body);
   const lineCol = styles.getPropertyValue("--line").trim() || "#f1c8d8";
   const edgeCol = styles.getPropertyValue("--edge").trim() || "#ff8fb5";
-  drawAxes(ctx, w, h, lineCol);
-  ctx.beginPath();
-  ctx.strokeStyle = edgeCol; ctx.lineWidth = 2;
   const xMin = -2 * Math.PI, xMax = 2 * Math.PI;
   const yScale = 18;
+  drawAxes(ctx, w, h, lineCol, { gridGraph: { xMin, xMax, yScale } });
+  ctx.beginPath();
+  ctx.strokeStyle = edgeCol; ctx.lineWidth = 2;
   let started = false, lastY = null;
   for (let px = 0; px <= w; px++) {
     const x = xMin + (px / w) * (xMax - xMin);
